@@ -1,0 +1,34 @@
+# Ambiente virtual Python
+.venv/
+venv/
+env/
+
+# Variáveis de ambiente (NUNCA commitar — contém senha do banco!)
+.env
+
+# Bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Distribuição / build
+dist/
+build/
+*.egg-info/
+
+# Banco de dados local (se usar SQLite em dev)
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# IDEs
+.idea/
+.vscode/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
