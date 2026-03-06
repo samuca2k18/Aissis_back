@@ -2,19 +2,16 @@
 Gerador de PDF com os templates oficiais da Assis Pianos.
 Baseado nos documentos reais: Orçamento e Contrato de Locação.
 """
+
 import io
 from datetime import datetime, timezone
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm
+
 from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    HRFlowable, KeepTogether
-)
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from ..settings import settings
 
@@ -147,7 +144,7 @@ def gerar_orcamento_pdf(
     cliente_cpf_cnpj: str | None,
     cliente_telefone: str,
     cliente_cidade: str,
-    itens: list[dict],       # [{"descricao": str, "valor": float}]
+    itens: list[dict],  # [{"descricao": str, "valor": float}]
     valor_total: float,
     condicoes_pagamento: str,
     prazo_entrega_dias: int | None,
@@ -182,26 +179,30 @@ def gerar_orcamento_pdf(
 
     col_widths = [120 * mm, 40 * mm]
     table = Table(table_data, colWidths=col_widths, repeatRows=1)
-    table.setStyle(TableStyle([
-        # Cabeçalho da tabela
-        ("BACKGROUND", (0, 0), (-1, 0), colors.white),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), 10),
-        ("BOX", (0, 0), (-1, 0), 0.5, colors.black),
-        # Linhas dos itens
-        ("FONTNAME", (0, 1), (-1, -2), "Helvetica"),
-        ("FONTSIZE", (0, 1), (-1, -2), 10),
-        ("BOX", (0, 1), (-1, -2), 0.3, colors.black),
-        ("GRID", (0, 1), (-1, -2), 0.3, colors.black),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        # Linha TOTAL
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, -1), (-1, -1), 10),
-        ("BOX", (0, -1), (-1, -1), 0.5, colors.black),
-    ]))
+    table.setStyle(
+        TableStyle(
+            [
+                # Cabeçalho da tabela
+                ("BACKGROUND", (0, 0), (-1, 0), colors.white),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 10),
+                ("BOX", (0, 0), (-1, 0), 0.5, colors.black),
+                # Linhas dos itens
+                ("FONTNAME", (0, 1), (-1, -2), "Helvetica"),
+                ("FONTSIZE", (0, 1), (-1, -2), 10),
+                ("BOX", (0, 1), (-1, -2), 0.3, colors.black),
+                ("GRID", (0, 1), (-1, -2), 0.3, colors.black),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                # Linha TOTAL
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, -1), (-1, -1), 10),
+                ("BOX", (0, -1), (-1, -1), 0.5, colors.black),
+            ]
+        )
+    )
     story.append(table)
     story.append(Spacer(1, 5 * mm))
 
@@ -276,27 +277,27 @@ def gerar_contrato_locacao_pdf(
             "CLÁUSULA 1ª",
             f'O primeiro nomeado aqui chamado "LOCADOR", aluga ao segundo nomeado, aqui chamado '
             f'"LOCATÁRIO", pelo preço certo ajustado o total de <b>{fmt_brl(valor_total)}</b> '
-            f'(<b>{valor_extenso}</b>) um <b>{descricao_piano}</b>.'
+            f"(<b>{valor_extenso}</b>) um <b>{descricao_piano}</b>.",
         ),
         (
             "CLÁUSULA 2ª",
             f"O LOCADOR compromete-se a entregar o piano na data de <b>{data_entrega_dia}</b> de "
-            f"<b>{data_entrega_mes}</b> de 2026 no <b>{local_entrega}</b>."
+            f"<b>{data_entrega_mes}</b> de 2026 no <b>{local_entrega}</b>.",
         ),
         (
             "CLÁUSULA 3ª",
             f"O LOCATÁRIO compromete-se a pagar o bem descrito na cláusula 1ª no ato desse contrato "
             f"<b>50 por cento</b> para reserva do Piano e <b>50 por cento</b> no dia "
-            f"<b>{data_segunda_parcela_dia}</b> de <b>{data_segunda_parcela_mes}</b> de 2026."
+            f"<b>{data_segunda_parcela_dia}</b> de <b>{data_segunda_parcela_mes}</b> de 2026.",
         ),
         (
             "CLÁUSULA 4ª",
-            "O LOCATÁRIO deverá manter o piano em perfeitas e em igual condições de uso até a devolução do mesmo."
+            "O LOCATÁRIO deverá manter o piano em perfeitas e em igual condições de uso até a devolução do mesmo.",
         ),
         (
             "CLÁUSULA 5ª",
             "Havendo algum dano ao bem descrito em posse ainda do LOCATÁRIO este se responsabilizará "
-            "pelo ressarcimento dos eventuais danos."
+            "pelo ressarcimento dos eventuais danos.",
         ),
     ]
 
@@ -304,10 +305,7 @@ def gerar_contrato_locacao_pdf(
         story.append(Paragraph(f"<b>{num}</b> – {texto}", s["clause"]))
 
     story.append(Spacer(1, 6 * mm))
-    story.append(Paragraph(
-        f"Fortaleza, {data_contrato_dia} de {data_contrato_mes} de 2026.",
-        s["body"]
-    ))
+    story.append(Paragraph(f"Fortaleza, {data_contrato_dia} de {data_contrato_mes} de 2026.", s["body"]))
 
     # Assinaturas
     story.append(Spacer(1, 16 * mm))
@@ -320,15 +318,19 @@ def gerar_contrato_locacao_pdf(
         [
             Paragraph("<b>LOCADOR</b>", s["small"]),
             Paragraph("<b>LOCATÁRIO</b>", s["small"]),
-        ]
+        ],
     ]
     sig_table = Table(assinatura_data, colWidths=[80 * mm, 80 * mm])
-    sig_table.setStyle(TableStyle([
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("LINEABOVE", (0, 0), (-1, 0), 0.5, colors.black),
-    ]))
+    sig_table.setStyle(
+        TableStyle(
+            [
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("LINEABOVE", (0, 0), (-1, 0), 0.5, colors.black),
+            ]
+        )
+    )
     story.append(sig_table)
 
     doc.build(story)
@@ -340,13 +342,41 @@ def gerar_contrato_locacao_pdf(
 # ─────────────────────────────────────────
 def _valor_por_extenso_simples(valor: float) -> str:
     """Converte valores comuns em extenso (BRL). Cobre 0–999.999."""
-    unidades = ["", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove",
-                "dez", "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete",
-                "dezoito", "dezenove"]
-    dezenas = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta",
-               "oitenta", "noventa"]
-    centenas = ["", "cem", "duzentos", "trezentos", "quatrocentos", "quinhentos",
-                "seiscentos", "setecentos", "oitocentos", "novecentos"]
+    unidades = [
+        "",
+        "um",
+        "dois",
+        "três",
+        "quatro",
+        "cinco",
+        "seis",
+        "sete",
+        "oito",
+        "nove",
+        "dez",
+        "onze",
+        "doze",
+        "treze",
+        "quatorze",
+        "quinze",
+        "dezesseis",
+        "dezessete",
+        "dezoito",
+        "dezenove",
+    ]
+    dezenas = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa"]
+    centenas = [
+        "",
+        "cem",
+        "duzentos",
+        "trezentos",
+        "quatrocentos",
+        "quinhentos",
+        "seiscentos",
+        "setecentos",
+        "oitocentos",
+        "novecentos",
+    ]
 
     def _partes(n: int) -> str:
         if n == 0:

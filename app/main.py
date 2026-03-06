@@ -1,8 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from .database import Base, engine
+from .routes import agenda, campanhas, clientes, dashboard, documentos, leads, negocios
 from .settings import settings
-from .database import engine, Base
-from .routes import clientes, leads, negocios, documentos, campanhas, agenda, dashboard
 
 
 def create_app() -> FastAPI:
@@ -36,6 +38,13 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["health"])
     def health():
         return {"ok": True, "app": settings.APP_NAME, "version": "1.0.0"}
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Ocorreu um erro interno no servidor.", "error": str(exc)},
+        )
 
     return app
 
