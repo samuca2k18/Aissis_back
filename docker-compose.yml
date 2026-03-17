@@ -22,7 +22,7 @@ services:
       # Configurações Básicas da Evolution
       - SERVER_TYPE=NODE
       - SERVER_PORT=8080
-      - SERVER_URL=http://localhost:8080
+      - SERVER_URL=http://64.181.181.86:8080
       - AUTH_TYPE=apikey
       - AUTH_API_KEY=Senhasupergrander123456!@#
       - CORS_ORIGIN=*
