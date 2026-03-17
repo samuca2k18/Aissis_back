@@ -1,0 +1,38 @@
+services:
+  # Backend do Iassis CRM
+  iassis-backend:
+    build: .
+    container_name: iassis-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - evolution-api
+
+  # Evolution API para WhatsApp
+  evolution-api:
+    image: atendai/evolution-api:latest
+    container_name: evolution-api
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      # Configurações Básicas da Evolution
+      - SERVER_TYPE=NODE
+      - SERVER_PORT=8080
+      - SERVER_URL=http://localhost:8080
+      - AUTH_TYPE=apikey
+      - AUTH_API_KEY=mude_esta_chave_123
+      - CORS_ORIGIN=*
+      - CORS_METHODS=GET,POST,PUT,DELETE
+      # Banco de dados interno da Evolution (SQLite por padrão neste exemplo)
+      - DATABASE_ENABLED=true
+      - DATABASE_CONNECTION_URI=sqlite:///evolution/database.sqlite
+      - DATABASE_SAVE_DATA_INSTANCE=true
+    volumes:
+      - evolution_instances:/evolution/instances
+
+volumes:
+  evolution_instances:

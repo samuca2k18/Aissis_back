@@ -1,10 +1,22 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .database import Base, engine
-from .routes import agenda, campanhas, clientes, dashboard, documentos, leads, negocios
+from .routes import agenda, campanhas, clientes, dashboard, documentos, leads, negocios, whatsapp
+from .services.scheduler import start_scheduler, stop_scheduler
 from .settings import settings
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    start_scheduler()
+    yield
+    # Shutdown
+    stop_scheduler()
 
 
 def create_app() -> FastAPI:
@@ -12,6 +24,7 @@ def create_app() -> FastAPI:
         title=settings.APP_NAME,
         description="CRM + Secretária Executiva da Assis Pianos",
         version="1.0.0",
+        lifespan=lifespan,
     )
 
     # CORS — ajuste origins conforme necessário
@@ -34,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(campanhas)
     app.include_router(agenda)
     app.include_router(dashboard)
+    app.include_router(whatsapp)
 
     @app.get("/health", tags=["health"])
     def health():
@@ -50,3 +64,4 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+

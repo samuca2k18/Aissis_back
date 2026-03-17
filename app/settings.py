@@ -18,5 +18,13 @@ class Settings(BaseSettings):
 
     DEFAULT_BUDGET_VALID_DAYS: int = 7
 
+    # Evolution API (WhatsApp)
+    EVOLUTION_API_URL: str = ""
+    EVOLUTION_API_KEY: str = ""
+    EVOLUTION_API_INSTANCE: str = ""
+
+    # Telefone que recebe o resumo diário às 7h (formato: 5585999999999)
+    WHATSAPP_NOTIFY_PHONE: str = ""
+
 
 settings = Settings()
