@@ -29,6 +29,7 @@ services:
       - CORS_METHODS=GET,POST,PUT,DELETE
       # Banco de dados interno da Evolution (SQLite por padrão neste exemplo)
       - DATABASE_ENABLED=true
+      - DATABASE_CONNECTION_PROVIDER=sqlite
       - DATABASE_CONNECTION_URI=sqlite:///evolution/database.sqlite
       - DATABASE_SAVE_DATA_INSTANCE=true
     volumes:
