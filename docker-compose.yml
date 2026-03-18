@@ -13,12 +13,14 @@ services:
     image: atendai/evolution-api:v2.1.2
     container_name: evolution-api
     restart: always
-    network_mode: host
+    ports:
+      - "8080:8080"
     environment:
       # Configurações do Servidor
       - SERVER_TYPE=http
       - SERVER_PORT=8080
       - SERVER_URL=http://64.181.181.86:8080
+      - LOG_LEVEL=TRACE,DEBUG
       - AUTHENTICATION_TYPE=apikey
       - AUTHENTICATION_API_KEY=MinhaChaveSegura2024xyz
       - CORS_ORIGIN=*
@@ -26,7 +28,7 @@ services:
       # Node.js Memory
       - NODE_OPTIONS=--max-old-space-size=512
       # Banco de dados PostgreSQL (Supabase)
-      - DATABASE_ENABLED=false
+      - DATABASE_ENABLED=true
       - DATABASE_PROVIDER=postgresql
       - DATABASE_CONNECTION_URI=postgresql://postgres.pyrfzttpihyttnzxplwp:Peixoto2004.@aws-1-sa-east-1.pooler.supabase.com:5432/postgres?schema=evolution
       - DATABASE_SAVE_DATA_INSTANCE=true
