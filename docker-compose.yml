@@ -46,7 +46,8 @@ services:
       - TYPEBOT_ENABLED=false
       - RABBITMQ_ENABLED=false
       - SQS_ENABLED=false
-      - WEBSOCKET_ENABLED=false
+      - WEBSOCKET_ENABLED=true
+      - WEBSOCKET_GLOBAL_EVENTS=false
     volumes:
       - evolution_instances:/evolution/instances
 
