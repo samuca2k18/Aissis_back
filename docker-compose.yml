@@ -20,7 +20,7 @@ services:
       - SERVER_TYPE=http
       - SERVER_PORT=8080
       - SERVER_URL=http://64.181.181.86:8080
-      - LOG_LEVEL=TRACE,DEBUG
+      - LOG_LEVEL=trace
       - AUTHENTICATION_TYPE=apikey
       - AUTHENTICATION_API_KEY=MinhaChaveSegura2024xyz
       - CORS_ORIGIN=*
