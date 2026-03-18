@@ -29,7 +29,7 @@ services:
       - DATABASE_ENABLED=true
       - DATABASE_PROVIDER=postgresql
       - DATABASE_CONNECTION_URI=postgresql://postgres.pyrfzttpihyttnzxplwp:Peixoto2004.@aws-1-sa-east-1.pooler.supabase.com:5432/postgres?schema=evolution
-      - DATABASE_SAVE_DATA_INSTANCE=true
+      - DATABASE_SAVE_DATA_INSTANCE=false
       - DATABASE_SAVE_DATA_NEW_MESSAGE=true
       - DATABASE_SAVE_MESSAGE_UPDATE=true
       - DATABASE_SAVE_DATA_CONTACTS=true
