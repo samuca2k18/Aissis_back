@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
@@ -41,6 +41,12 @@ def _find_asset(name: str) -> Path | None:
 
 def _logo_path() -> Path | None:
     return _find_asset("logo")
+
+
+def _logo_recibo_path() -> Path | None:
+    """Logo específica do recibo (logo_recibo) com fallback pra logo genérica."""
+    p = _find_asset("logo_recibo")
+    return p if p else _logo_path()
 
 
 def _assinatura_path() -> Path | None:
@@ -128,7 +134,7 @@ def _styles():
         ),
         "recibo_texto": ParagraphStyle(
             "recibo_texto", parent=normal, fontSize=11, fontName="Helvetica-Bold",
-            spaceAfter=6, leading=16,
+            alignment=TA_JUSTIFY, spaceAfter=6, leading=18,
         ),
     }
 
@@ -150,20 +156,35 @@ def _company_header_full(s: dict) -> list:
     return elems
 
 
+def _company_header_recibo(s: dict) -> list:
+    """Cabeçalho simplificado do recibo: logo + endereço + fone (sem CNPJ)."""
+    elems = []
+    lp = _logo_recibo_path()
+    if lp is not None:
+        logo = Image(str(lp), width=40 * mm, height=33 * mm)
+        logo.hAlign = "CENTER"
+        elems.append(logo)
+        elems.append(Spacer(1, 2 * mm))
+    elems.append(Paragraph(settings.COMPANY_ADDRESS, s["header_info"]))
+    elems.append(Paragraph(f"Fone: {settings.COMPANY_PHONE}", s["header_info"]))
+    elems.append(Spacer(1, 8 * mm))
+    return elems
+
+
 # Keep alias for contrato (unchanged)
 _company_header_text = _company_header_full
 
 
 def _assinatura_block(s: dict, nome: str = None) -> list:
-    """Bloco de assinatura com imagem (se disponível) ou linha."""
+    """Bloco de assinatura com imagem (se disponível) + linha + nome."""
     elems = []
     elems.append(Spacer(1, 14 * mm))
     if (_ap := _assinatura_path()) is not None:
         img = Image(str(_ap), width=80 * mm, height=12 * mm)
         img.hAlign = "CENTER"
         elems.append(img)
-    else:
-        elems.append(HRFlowable(width="60%", thickness=0.5, color=colors.black, hAlign="CENTER"))
+    # Sempre mostra a linha horizontal abaixo (com ou sem imagem)
+    elems.append(HRFlowable(width="50%", thickness=0.5, color=colors.black, hAlign="CENTER"))
     responsavel = nome or settings.COMPANY_RESPONSAVEL
     elems.append(Paragraph(responsavel, s["small"]))
     return elems
@@ -215,7 +236,7 @@ def gerar_orcamento_pdf(
         table_data.append([item["descricao"], fmt_brl(item["valor"])])
     table_data.append(["TOTAL", fmt_brl(valor_total)])
 
-    col_widths = [120 * mm, 40 * mm]
+    col_widths = [115 * mm, 45 * mm]
     table = Table(table_data, colWidths=col_widths, repeatRows=1)
     table.setStyle(
         TableStyle([
@@ -268,7 +289,7 @@ def gerar_recibo_pdf(
 ) -> bytes:
     """
     Gera recibo no modelo oficial da Assis Pianos:
-    logo + endereço → R E C I B O → caixa valor → texto descritivo → assinatura
+    logo + endereço + fone → R E C I B O → caixa valor (direita) → texto descritivo → assinatura
     """
     if data_recibo is None:
         data_recibo = datetime.now(timezone.utc)
@@ -280,38 +301,44 @@ def gerar_recibo_pdf(
     s = _styles()
     story = []
 
-    # ── Cabeçalho completo (logo + razão social + CNPJ + endereço + fone + e-mail)
-    story += _company_header_full(s)
+    # ── Cabeçalho simplificado do recibo (logo + endereço + fone, SEM CNPJ)
+    story += _company_header_recibo(s)
 
     # ── Título
     story.append(Paragraph("<b>R E C I B O</b>", s["title"]))
-    story.append(Spacer(1, 4 * mm))
+    story.append(Spacer(1, 6 * mm))
 
-    # ── Caixa com valor destacado (borda simples, igual ao modelo)
+    # ── Caixa com valor destacado alinhada à DIREITA (igual ao modelo)
+    page_w = A4[0] - 20 * mm - 20 * mm  # largura útil
+    box_w = 60 * mm
+    spacer_w = page_w - box_w
+
     valor_table = Table(
-        [[Paragraph(fmt_brl(valor), s["recibo_valor"])]],
-        colWidths=[160 * mm],
+        [[Paragraph("", s["body"]), Paragraph(fmt_brl(valor), s["recibo_valor"])]],
+        colWidths=[spacer_w, box_w],
     )
     valor_table.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 1.0, colors.black),
+        ("BOX", (1, 0), (1, 0), 1.2, colors.black),
         ("TOPPADDING", (0, 0), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("ALIGN", (1, 0), (1, 0), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
     story.append(valor_table)
     story.append(Spacer(1, 8 * mm))
 
-    # ── Texto descritivo
+    # ── Texto descritivo em negrito, maiúsculo, justificado
     pagador_upper = pagador_nome.upper()
     descricao_upper = descricao.upper()
     texto = (
-        f"RECEBI DO SENHOR {pagador_upper} O VALOR {fmt_brl(valor)} "
+        f" RECEBI DO SENHOR {pagador_upper} O VALOR {fmt_brl(valor)} "
         f"({valor_extenso}) REFERENTE A {descricao_upper}"
     )
     story.append(Paragraph(texto, s["recibo_texto"]))
 
-    # ── Assinatura com imagem
+    # ── Assinatura com imagem + linha
     story += _assinatura_block(s)
     story.append(Paragraph("Assinatura", s["small"]))
     story.append(Spacer(1, 4 * mm))
