@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -14,51 +14,41 @@ router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
 
 
 @router.post("/webhook")
-async def webhook(request: Request, db: Session = Depends(get_db)):
+async def webhook(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Endpoint que a Evolution API chama quando uma mensagem é recebida.
-
-    O payload da Evolution API v2 tem a seguinte estrutura (simplificada):
-    {
-      "event": "messages.upsert",
-      "data": {
-        "key": { "remoteJid": "5585999999999@s.whatsapp.net", "fromMe": false },
-        "message": { "conversation": "texto da mensagem" }
-      }
-    }
     """
     try:
         body = await request.json()
     except Exception:
-        return {"status": "ignored", "reason": "invalid json"}
+        return {"status": "ignored", "reason": "invalid_json"}
 
-    event = body.get("event", "")
+    event = body.get("event", "unknown")
 
-    # Só processar mensagens recebidas
+    # Log de debug para ver o flood de eventos
+    log.info(f"WEBHOOK EVENT [{event}]")
+
+    # Só processar mensagens recebidas (upsert)
     if event != "messages.upsert":
-        return {"status": "ignored", "reason": f"event={event}"}
+        return {"status": "ignored", "reason": f"event_{event}"}
 
     data = body.get("data", {})
-
-    # Ignorar mensagens enviadas por nós
-    key = data.get("key", {})
-    if key.get("fromMe", True):
-        return {"status": "ignored", "reason": "fromMe"}
-
-    remote_jid = key.get("remoteJid", "")
-
-    if not remote_jid:
-        return {"status": "ignored", "reason": "no jid"}
-
-    # Ignorar grupos (@g.us) e status (@broadcast) — só responder DMs
-    if not remote_jid.endswith("@s.whatsapp.net"):
-        return {"status": "ignored", "reason": "not a DM"}
-
-    # Extrair apenas o número (sem sufixo)
-    phone = remote_jid.split("@")[0]
-
-    # Extrair texto da mensagem
     message = data.get("message", {})
+
+    # Ignorar se não houver corpo de mensagem (ex: só status/presença)
+    if not message:
+        return {"status": "ignored", "reason": "no_message_body"}
+
+    # Ignorar mensagens enviadas por nós (fromMe)
+    key = data.get("key", {})
+    if key.get("fromMe") is True:
+        return {"status": "ignored", "reason": "sent_by_me"}
+
+    # Extrair JID e texto
+    remote_jid = key.get("remoteJid", "")
+    if not remote_jid or not remote_jid.endswith("@s.whatsapp.net"):
+        return {"status": "ignored", "reason": "not_a_dm"}
+
     text = (
         message.get("conversation")
         or message.get("extendedTextMessage", {}).get("text")
@@ -66,10 +56,13 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     )
 
     if not text.strip():
-        return {"status": "ignored", "reason": "empty text"}
+        return {"status": "ignored", "reason": "non_text_message"}
 
-    log.info("WhatsApp msg de %s: %s", phone, text[:100])
+    phone = remote_jid.split("@")[0]
+    log.info(f"📩 MENSAGEM RECEBIDA [{phone}]: {text[:50]}...")
 
-    await handle_message(db, phone, text)
+    # EXECUÇÃO ASSÍNCRONA:
+    # Respondemos 200 OK imediatamente para evitar retries da Evolution API.
+    background_tasks.add_task(handle_message, db, phone, text)
 
-    return {"status": "ok"}
+    return {"status": "success", "message": "processing"}
