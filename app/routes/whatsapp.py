@@ -45,12 +45,17 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     if key.get("fromMe", True):
         return {"status": "ignored", "reason": "fromMe"}
 
-    # Extrair telefone (remover @s.whatsapp.net)
     remote_jid = key.get("remoteJid", "")
-    phone = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
 
-    if not phone:
-        return {"status": "ignored", "reason": "no phone"}
+    if not remote_jid:
+        return {"status": "ignored", "reason": "no jid"}
+
+    # Ignorar grupos (@g.us) e status (@broadcast) — só responder DMs
+    if not remote_jid.endswith("@s.whatsapp.net"):
+        return {"status": "ignored", "reason": "not a DM"}
+
+    # Extrair apenas o número (sem sufixo)
+    phone = remote_jid.split("@")[0]
 
     # Extrair texto da mensagem
     message = data.get("message", {})
