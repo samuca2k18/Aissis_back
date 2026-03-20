@@ -70,7 +70,8 @@ async def handle_message(db: Session, phone: str, text: str) -> None:
     # Comando global de reset
     if text == "0":
         _save(db, sess, "menu", {})
-        await evolution_api.send_text(phone, MENU_TEXT)
+        if sess.state != "menu":
+            await evolution_api.send_text(phone, MENU_TEXT)
         return
 
     handler = STATE_HANDLERS.get(sess.state, _handle_menu)
