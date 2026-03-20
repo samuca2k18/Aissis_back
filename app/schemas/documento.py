@@ -17,6 +17,7 @@ class OrcamentoCreate(BaseModel):
     cliente_cpf_cnpj: str | None = None
     cliente_telefone: str
     cliente_cidade: str
+    descricao_piano: str | None = None          # ← modelo do piano (ex: "Fritz Dobbert")
     itens: list[ItemOrcamento] = Field(min_length=1)
     condicoes_pagamento: str = "40% na retirada e restante na entrega"
     prazo_entrega_dias: int | None = None
@@ -38,8 +39,8 @@ class ContratoLocacaoCreate(BaseModel):
     valor_total: float
 
     # Datas
-    data_entrega_dia: str  # ex: "15"
-    data_entrega_mes: str  # ex: "março"
+    data_entrega_dia: str      # ex: "15"
+    data_entrega_mes: str      # ex: "março"
     local_entrega: str
 
     # Pagamento (50/50 padrão)
@@ -49,6 +50,14 @@ class ContratoLocacaoCreate(BaseModel):
     # Data do contrato
     data_contrato_dia: str
     data_contrato_mes: str
+
+
+class ReciboCreate(BaseModel):
+    negocio_id: int
+    pagador_nome: str                           # nome de quem pagou
+    valor: float
+    descricao: str                              # ex: "REFORMA DE UM PIANO ESSENFELDER"
+    data_recibo: datetime | None = None         # None = agora
 
 
 class DocumentoOut(BaseModel):

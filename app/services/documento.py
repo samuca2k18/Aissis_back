@@ -3,12 +3,14 @@ from sqlalchemy.orm import Session
 
 from app.models.documento import Documento
 from app.models.negocio import Negocio
-from app.schemas.documento import ContratoLocacaoCreate, OrcamentoCreate
+from app.schemas.documento import ContratoLocacaoCreate, OrcamentoCreate, ReciboCreate
 from app.services.pdf_generator import (
     gerar_contrato_locacao_pdf,
     gerar_orcamento_pdf,
+    gerar_recibo_pdf,
     texto_contrato_locacao,
     texto_orcamento,
+    texto_recibo,
 )
 
 
@@ -29,6 +31,7 @@ def gerar_orcamento(db: Session, payload: OrcamentoCreate) -> Documento:
         valor_total=valor_total,
         condicoes_pagamento=payload.condicoes_pagamento,
         prazo_entrega_dias=payload.prazo_entrega_dias,
+        descricao_piano=payload.descricao_piano,
         data_emissao=payload.data_emissao,
         observacoes=payload.observacoes,
     )
@@ -39,6 +42,7 @@ def gerar_orcamento(db: Session, payload: OrcamentoCreate) -> Documento:
         valor_total=valor_total,
         condicoes_pagamento=payload.condicoes_pagamento,
         prazo_entrega_dias=payload.prazo_entrega_dias,
+        descricao_piano=payload.descricao_piano,
         data_emissao=payload.data_emissao,
     )
 
@@ -58,13 +62,46 @@ def gerar_orcamento(db: Session, payload: OrcamentoCreate) -> Documento:
     return doc
 
 
+def gerar_recibo(db: Session, payload: ReciboCreate) -> Documento:
+    negocio = db.query(Negocio).filter(Negocio.id == payload.negocio_id).first()
+    if not negocio:
+        raise HTTPException(status_code=404, detail="Negócio não encontrado.")
+
+    pdf_bytes = gerar_recibo_pdf(
+        pagador_nome=payload.pagador_nome,
+        valor=payload.valor,
+        descricao=payload.descricao,
+        data_recibo=payload.data_recibo,
+    )
+
+    conteudo = texto_recibo(
+        pagador_nome=payload.pagador_nome,
+        valor=payload.valor,
+        descricao=payload.descricao,
+        data_recibo=payload.data_recibo,
+    )
+
+    doc = Documento(
+        negocio_id=negocio.id,
+        tipo="recibo",
+        conteudo=conteudo,
+        pdf_bytes=pdf_bytes,
+    )
+    db.add(doc)
+
+    # Marcar negócio como fechado ao emitir recibo
+    negocio.status = "fechado"
+    negocio.valor = payload.valor
+
+    db.commit()
+    db.refresh(doc)
+    return doc
+
+
 def obter_pdf_documento(db: Session, doc_id: int, tipo: str) -> bytes:
     doc = (
         db.query(Documento)
-        .filter(
-            Documento.id == doc_id,
-            Documento.tipo == tipo,
-        )
+        .filter(Documento.id == doc_id, Documento.tipo == tipo)
         .first()
     )
     if not doc or not doc.pdf_bytes:
@@ -129,4 +166,9 @@ def listar_documentos(db: Session) -> list[Documento]:
 
 
 def listar_por_negocio(db: Session, negocio_id: int) -> list[Documento]:
-    return db.query(Documento).filter(Documento.negocio_id == negocio_id).order_by(Documento.created_at.desc()).all()
+    return (
+        db.query(Documento)
+        .filter(Documento.negocio_id == negocio_id)
+        .order_by(Documento.created_at.desc())
+        .all()
+    )
