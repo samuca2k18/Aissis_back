@@ -34,6 +34,17 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
 
     event = body.get("event", "")
 
+    # ── DEBUG: logar tudo que chega para diagnosticar ──
+    data_preview = body.get("data", {})
+    key_preview = data_preview.get("key", {}) if isinstance(data_preview, dict) else {}
+    log.warning(
+        "WEBHOOK DEBUG ► event=%s | jid=%s | fromMe=%s | keys=%s",
+        event,
+        key_preview.get("remoteJid", "?"),
+        key_preview.get("fromMe", "?"),
+        list(body.keys()),
+    )
+
     # Só processar mensagens recebidas
     if event != "messages.upsert":
         return {"status": "ignored", "reason": f"event={event}"}
