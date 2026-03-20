@@ -1,37 +1,47 @@
 """
 Máquina de estados do bot do WhatsApp.
 
-Gerencia o fluxo de conversa para:
-  1. Gerar orçamento → coleta dados → gera PDF → envia
-  2. Agendar afinação/manutenção → coleta dados → cria na agenda
-  3. Consultar agenda do dia
+Melhorias implementadas:
+  1. UX aprimorada: resumos formatados, erros com exemplos, timeout de sessão
+  2. Atalhos de palavras-chave: "oi", "menu", "orçamento", "agendar"
+  3. Consulta de agenda por data: "hoje", "amanhã", "semana" ou DD/MM
+  4. Envio do PDF por WhatsApp após confirmar orçamento
+  5. Reconhecimento de cliente existente pelo número de telefone
 """
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
+from app.models.agenda import Agenda
+from app.models.cliente import Cliente
+from app.models.documento import Documento
+from app.models.negocio import Negocio
 from app.models.whatsapp_session import WhatsappSession
 from app.services import evolution_api
 from app.services.pdf_generator import gerar_orcamento_pdf
-from app.models.agenda import Agenda
-from app.models.cliente import Cliente
-from app.models.negocio import Negocio
-from app.models.documento import Documento
 
 log = logging.getLogger(__name__)
+
+# ─── Timeout de sessão: 30 minutos sem interação → resetar ─────────────────
+SESSION_TIMEOUT_MINUTES = 30
 
 MENU_TEXT = (
     "🎹 *Assis Pianos — Atendimento Automático*\n\n"
     "Olá! Como posso ajudar? Escolha uma opção:\n\n"
     "1️⃣  Solicitar *Orçamento*\n"
     "2️⃣  Agendar *Afinação / Manutenção*\n"
-    "3️⃣  Consultar *Agenda do dia*\n"
+    "3️⃣  Consultar *Agenda*\n"
     "0️⃣  Voltar ao menu\n\n"
     "_Responda com o número da opção._"
 )
+
+# ─── palavras-chave para atalho ─────────────────────────────────────────────
+_KW_MENU       = {"menu", "oi", "olá", "ola", "boa tarde", "bom dia", "boa noite", "inicio", "início"}
+_KW_ORCAMENTO  = {"orçamento", "orcamento", "orcar", "orçar", "preço", "preco", "valor", "quanto"}
+_KW_AGENDAR    = {"agendar", "agendamento", "agenda", "marcar", "afinação", "afinacao"}
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
@@ -50,6 +60,10 @@ def _save(db: Session, sess: WhatsappSession, state: str, data: dict | None = No
     sess.state = state
     if data is not None:
         sess.data_json = json.dumps(data, ensure_ascii=False)
+    # Registrar timestamp da última interação
+    extra = json.loads(sess.data_json) if sess.data_json else {}
+    extra["_last_active"] = datetime.now(timezone.utc).isoformat()
+    sess.data_json = json.dumps(extra, ensure_ascii=False)
     db.commit()
 
 
@@ -60,6 +74,41 @@ def _data(sess: WhatsappSession) -> dict:
         return {}
 
 
+def _is_timed_out(sess: WhatsappSession) -> bool:
+    """Retorna True se a sessão ficou mais de SESSION_TIMEOUT_MINUTES inativa."""
+    d = _data(sess)
+    last = d.get("_last_active")
+    if not last:
+        return False
+    try:
+        last_dt = datetime.fromisoformat(last)
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - last_dt
+        return delta > timedelta(minutes=SESSION_TIMEOUT_MINUTES)
+    except Exception:
+        return False
+
+
+def _detect_keyword(text: str) -> str | None:
+    """Detecta palavras-chave e retorna o atalho: 'menu', 'orcamento' ou 'agendar'."""
+    t = text.lower().strip()
+    if t in _KW_MENU:
+        return "menu"
+    for kw in _KW_ORCAMENTO:
+        if kw in t:
+            return "orcamento"
+    for kw in _KW_AGENDAR:
+        if kw in t:
+            return "agendar"
+    return None
+
+
+def _fmt_brl(valor: float) -> str:
+    s = f"{valor:,.2f}"
+    return "R$ " + s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 # ─── handler principal ──────────────────────────────────────────────────────
 
 async def handle_message(db: Session, phone: str, text: str) -> None:
@@ -67,12 +116,36 @@ async def handle_message(db: Session, phone: str, text: str) -> None:
     text = text.strip()
     sess = _get_or_create_session(db, phone)
 
-    # Comando global de reset
-    if text == "0":
+    # ── Melhoria 1: Timeout de sessão ─────────────────────────────────────
+    if sess.state != "menu" and _is_timed_out(sess):
         _save(db, sess, "menu", {})
+        await evolution_api.send_text(
+            phone,
+            "⏱️ _Sua sessão expirou por inatividade._\n\n" + MENU_TEXT
+        )
+        return
+
+    # ── Comando global de reset ────────────────────────────────────────────
+    if text == "0":
         if sess.state != "menu":
+            _save(db, sess, "menu", {})
             await evolution_api.send_text(phone, MENU_TEXT)
         return
+
+    # ── Melhoria 2: Atalhos por palavras-chave ────────────────────────────
+    kw = _detect_keyword(text)
+    if kw and sess.state == "menu":
+        if kw == "orcamento":
+            # Melhoria 5: reconhecer cliente já cadastrado pelo número
+            await _iniciar_orcamento(db, sess, phone)
+            return
+        elif kw == "agendar":
+            _save(db, sess, "ag_titulo", {})
+            await evolution_api.send_text(
+                phone,
+                "📅 *Agendamento* — Vamos agendar!\n\nQual o *título* do serviço?\n_(ex: Afinação Piano Yamaha)_"
+            )
+            return
 
     handler = STATE_HANDLERS.get(sess.state, _handle_menu)
     await handler(db, sess, phone, text)
@@ -84,15 +157,56 @@ async def handle_message(db: Session, phone: str, text: str) -> None:
 
 async def _handle_menu(db: Session, sess: WhatsappSession, phone: str, text: str):
     if text == "1":
-        _save(db, sess, "orc_nome", {})
-        await evolution_api.send_text(phone, "📝 *Orçamento* — Vamos começar!\n\nQual o *nome completo* do cliente?")
+        await _iniciar_orcamento(db, sess, phone)
     elif text == "2":
         _save(db, sess, "ag_titulo", {})
-        await evolution_api.send_text(phone, "📅 *Agendamento* — Vamos agendar!\n\nQual o *título* do serviço? (ex: Afinação Piano Yamaha)")
+        await evolution_api.send_text(
+            phone,
+            "📅 *Agendamento* — Vamos agendar!\n\nQual o *título* do serviço?\n_(ex: Afinação Piano Yamaha)_"
+        )
     elif text == "3":
-        await _enviar_agenda_dia(db, phone)
+        await _handle_agenda_query(db, sess, phone)
     else:
         await evolution_api.send_text(phone, MENU_TEXT)
+
+
+# ── Melhoria 5: Iniciar orçamento reconhecendo cliente existente ─────────────
+
+async def _iniciar_orcamento(db: Session, sess: WhatsappSession, phone: str):
+    """Inicia o fluxo de orçamento, reconhecendo cliente já cadastrado."""
+    # Busca cliente pelo número do WhatsApp (o número sem DDI ou com)
+    cliente = (
+        db.query(Cliente)
+        .filter(Cliente.telefone.contains(phone[-9:]))  # últimos 9 dígitos
+        .first()
+    )
+
+    if cliente:
+        # Melhoria 5: cliente já existe — preencher dados automaticamente
+        d = {
+            "cliente_nome": cliente.nome,
+            "cliente_telefone": cliente.telefone,
+            "cliente_cidade": cliente.cidade or "",
+            "cliente_existente": True,
+        }
+        _save(db, sess, "orc_itens", d)
+        await evolution_api.send_text(
+            phone,
+            f"👋 Olá, *{cliente.nome}*! Encontrei seu cadastro.\n\n"
+            f"📦 Agora informe os *itens do orçamento*.\n\n"
+            "Envie cada item no formato:\n"
+            "`descricao ; valor`\n\n"
+            "Exemplos:\n"
+            "`Afinação completa ; 350`\n"
+            "`Regulagem de teclas ; 500`\n\n"
+            "Quando terminar, envie *OK*."
+        )
+    else:
+        _save(db, sess, "orc_nome", {})
+        await evolution_api.send_text(
+            phone,
+            "📝 *Orçamento* — Vamos começar!\n\nQual o *nome completo* do cliente?"
+        )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -103,14 +217,14 @@ async def _orc_nome(db: Session, sess: WhatsappSession, phone: str, text: str):
     d = _data(sess)
     d["cliente_nome"] = text
     _save(db, sess, "orc_telefone", d)
-    await evolution_api.send_text(phone, "📞 Qual o *telefone* do cliente?")
+    await evolution_api.send_text(phone, "📞 Qual o *telefone* do cliente?\n_(ex: 85999990000)_")
 
 
 async def _orc_telefone(db: Session, sess: WhatsappSession, phone: str, text: str):
     d = _data(sess)
     d["cliente_telefone"] = text
     _save(db, sess, "orc_cidade", d)
-    await evolution_api.send_text(phone, "🏙️ Qual a *cidade* do cliente?")
+    await evolution_api.send_text(phone, "🏙️ Qual a *cidade* do cliente?\n_(ex: Fortaleza/CE)_")
 
 
 async def _orc_cidade(db: Session, sess: WhatsappSession, phone: str, text: str):
@@ -119,10 +233,10 @@ async def _orc_cidade(db: Session, sess: WhatsappSession, phone: str, text: str)
     _save(db, sess, "orc_itens", d)
     await evolution_api.send_text(
         phone,
-        "📦 Agora informe os *itens do orçamento*.\n\n"
+        "📦 Informe os *itens do orçamento*.\n\n"
         "Envie cada item no formato:\n"
         "`descricao ; valor`\n\n"
-        "Exemplo:\n"
+        "Exemplos:\n"
         "`Afinação completa ; 350`\n"
         "`Regulagem de teclas ; 500`\n\n"
         "Quando terminar, envie *OK*."
@@ -135,17 +249,22 @@ async def _orc_itens(db: Session, sess: WhatsappSession, phone: str, text: str):
 
     if text.upper() == "OK":
         if not itens:
-            await evolution_api.send_text(phone, "⚠️ Você não adicionou nenhum item. Envie os itens primeiro.")
+            await evolution_api.send_text(
+                phone,
+                "⚠️ Nenhum item adicionado ainda.\n\n"
+                "Envie no formato: `descricao ; valor`\n"
+                "Exemplo: `Afinação completa ; 350`"
+            )
             return
         _save(db, sess, "orc_pagamento", d)
-        resumo = "\n".join(f"  • {i['descricao']} — R$ {i['valor']:.2f}" for i in itens)
+        resumo = "\n".join(f"  • {i['descricao']} — {_fmt_brl(i['valor'])}" for i in itens)
         total = sum(i["valor"] for i in itens)
         await evolution_api.send_text(
             phone,
             f"📋 *Itens adicionados:*\n{resumo}\n\n"
-            f"💰 *Total: R$ {total:.2f}*\n\n"
+            f"💰 *Total: {_fmt_brl(total)}*\n\n"
             "Qual a *condição de pagamento*?\n"
-            "(ex: _50% na retirada e 50% na entrega_)\n\n"
+            "_(ex: 50% na retirada e 50% na entrega)_\n\n"
             "Ou envie *pular* para usar o padrão."
         )
         return
@@ -153,19 +272,35 @@ async def _orc_itens(db: Session, sess: WhatsappSession, phone: str, text: str):
     # parsear item
     parts = text.split(";")
     if len(parts) != 2:
-        await evolution_api.send_text(phone, "⚠️ Formato inválido. Use: `descricao ; valor`\nExemplo: `Afinação completa ; 350`")
+        await evolution_api.send_text(
+            phone,
+            "⚠️ Formato inválido. Use:\n`descricao ; valor`\n\n"
+            "✅ Exemplo correto: `Afinação completa ; 350`"
+        )
         return
     try:
         desc = parts[0].strip()
         valor = float(parts[1].strip().replace(",", "."))
+        if valor <= 0:
+            raise ValueError
     except ValueError:
-        await evolution_api.send_text(phone, "⚠️ Valor inválido. Envie um número. Ex: `Afinação ; 350`")
+        await evolution_api.send_text(
+            phone,
+            "⚠️ Valor inválido. Use um número positivo.\n"
+            "✅ Exemplo: `Afinação ; 350`"
+        )
         return
 
     itens.append({"descricao": desc, "valor": valor})
     d["itens"] = itens
     _save(db, sess, "orc_itens", d)
-    await evolution_api.send_text(phone, f"✅ Item adicionado: *{desc}* — R$ {valor:.2f}\n\nEnvie mais itens ou *OK* para continuar.")
+    total_parcial = sum(i["valor"] for i in itens)
+    await evolution_api.send_text(
+        phone,
+        f"✅ *{desc}* — {_fmt_brl(valor)} adicionado!\n"
+        f"💰 Subtotal: {_fmt_brl(total_parcial)}\n\n"
+        f"Envie mais itens ou *OK* para continuar."
+    )
 
 
 async def _orc_pagamento(db: Session, sess: WhatsappSession, phone: str, text: str):
@@ -178,7 +313,7 @@ async def _orc_pagamento(db: Session, sess: WhatsappSession, phone: str, text: s
 
     itens = d["itens"]
     total = sum(i["valor"] for i in itens)
-    resumo = "\n".join(f"  • {i['descricao']} — R$ {i['valor']:.2f}" for i in itens)
+    resumo = "\n".join(f"  • {i['descricao']} — {_fmt_brl(i['valor'])}" for i in itens)
 
     await evolution_api.send_text(
         phone,
@@ -187,19 +322,20 @@ async def _orc_pagamento(db: Session, sess: WhatsappSession, phone: str, text: s
         f"📞 *Telefone:* {d['cliente_telefone']}\n"
         f"🏙️ *Cidade:* {d['cliente_cidade']}\n\n"
         f"📦 *Itens:*\n{resumo}\n\n"
-        f"💰 *Total: R$ {total:.2f}*\n"
+        f"💰 *Total: {_fmt_brl(total)}*\n"
         f"💳 *Pagamento:* {d['condicoes_pagamento']}\n\n"
         "Confirma? Responda *SIM* ou *NÃO*."
     )
 
 
 async def _orc_confirmar(db: Session, sess: WhatsappSession, phone: str, text: str):
-    if text.upper() == "NÃO" or text.upper() == "NAO":
+    upper = text.upper().strip()
+    if upper in ("NÃO", "NAO", "N", "CANCELAR"):
         _save(db, sess, "menu", {})
         await evolution_api.send_text(phone, "❌ Orçamento cancelado.\n\n" + MENU_TEXT)
         return
 
-    if text.upper() != "SIM":
+    if upper != "SIM":
         await evolution_api.send_text(phone, "Responda *SIM* para confirmar ou *NÃO* para cancelar.")
         return
 
@@ -208,7 +344,7 @@ async def _orc_confirmar(db: Session, sess: WhatsappSession, phone: str, text: s
     await evolution_api.send_text(phone, "⏳ Gerando seu orçamento em PDF...")
 
     try:
-        # 1. Criar ou encontrar o cliente
+        # 1. Criar ou reusar cliente
         cliente = db.query(Cliente).filter(Cliente.telefone == d["cliente_telefone"]).first()
         if not cliente:
             cliente = Cliente(
@@ -259,20 +395,32 @@ async def _orc_confirmar(db: Session, sess: WhatsappSession, phone: str, text: s
         db.commit()
         db.refresh(doc)
 
-        # 5. Enviar PDF via WhatsApp
+        # 5. Melhoria 4: Enviar PDF via WhatsApp (já implementado)
         await evolution_api.send_media(
             phone,
             pdf_bytes,
             f"orcamento_{doc.id}.pdf",
-            caption=f"📎 Orçamento #{doc.id} — {d['cliente_nome']}"
+            caption=(
+                f"📎 *Orçamento #{doc.id}*\n"
+                f"👤 {d['cliente_nome']}\n"
+                f"💰 Total: {_fmt_brl(total)}"
+            )
         )
 
         _save(db, sess, "menu", {})
-        await evolution_api.send_text(phone, "✅ Orçamento gerado e enviado com sucesso!\n\n" + MENU_TEXT)
+        await evolution_api.send_text(
+            phone,
+            f"✅ *Orçamento #{doc.id} gerado com sucesso!*\n"
+            f"O PDF foi enviado acima. ☝️\n\n" + MENU_TEXT
+        )
 
     except Exception as e:
         log.exception("Erro ao gerar orçamento via WhatsApp")
-        await evolution_api.send_text(phone, f"❌ Ocorreu um erro ao gerar o orçamento: {e}\nTente novamente.")
+        await evolution_api.send_text(
+            phone,
+            "❌ Ocorreu um erro ao gerar o orçamento.\n"
+            "Por favor, tente novamente ou entre em contato diretamente."
+        )
         _save(db, sess, "menu", {})
 
 
@@ -288,15 +436,46 @@ async def _ag_titulo(db: Session, sess: WhatsappSession, phone: str, text: str):
         phone,
         "📆 Qual a *data e hora*?\n\n"
         "Formato: `DD/MM/AAAA HH:MM`\n"
-        "Exemplo: `25/03/2026 14:00`"
+        "Exemplo: `25/03/2026 14:00`\n\n"
+        "_Ou envie *hoje*, *amanhã* + hora. Ex: `hoje 14:00`_"
     )
 
 
 async def _ag_data(db: Session, sess: WhatsappSession, phone: str, text: str):
-    try:
-        dt = datetime.strptime(text.strip(), "%d/%m/%Y %H:%M")
-    except ValueError:
-        await evolution_api.send_text(phone, "⚠️ Formato inválido. Use `DD/MM/AAAA HH:MM` (ex: `25/03/2026 14:00`)")
+    t = text.strip().lower()
+    dt = None
+
+    # Melhoria 3: aceitar "hoje HH:MM" e "amanhã HH:MM"
+    hoje = datetime.now(timezone.utc).date()
+    if t.startswith("hoje ") or t.startswith("hoje,"):
+        hora_str = t.split(" ", 1)[1].strip()
+        try:
+            h, m = map(int, hora_str.replace("h", ":").split(":"))
+            dt = datetime(hoje.year, hoje.month, hoje.day, h, m)
+        except Exception:
+            pass
+    elif t.startswith("amanhã ") or t.startswith("amanha "):
+        hora_str = t.split(" ", 1)[1].strip()
+        try:
+            h, m = map(int, hora_str.replace("h", ":").split(":"))
+            amanha = hoje + timedelta(days=1)
+            dt = datetime(amanha.year, amanha.month, amanha.day, h, m)
+        except Exception:
+            pass
+    else:
+        try:
+            dt = datetime.strptime(text.strip(), "%d/%m/%Y %H:%M")
+        except ValueError:
+            pass
+
+    if dt is None:
+        await evolution_api.send_text(
+            phone,
+            "⚠️ Data inválida. Use um dos formatos:\n\n"
+            "  • `25/03/2026 14:00`\n"
+            "  • `hoje 14:00`\n"
+            "  • `amanhã 09:30`"
+        )
         return
 
     d = _data(sess)
@@ -314,23 +493,41 @@ async def _ag_data(db: Session, sess: WhatsappSession, phone: str, text: str):
 
 async def _ag_tipo(db: Session, sess: WhatsappSession, phone: str, text: str):
     tipos = {"1": "afinacao", "2": "manutencao", "3": "entrega", "4": "outro"}
-    tipo = tipos.get(text)
+    # Melhoria 1: aceitar texto além de número
+    t = text.strip().lower()
+    tipo = tipos.get(t)
     if not tipo:
-        await evolution_api.send_text(phone, "⚠️ Opção inválida. Envie 1, 2, 3 ou 4.")
+        for k, v in {"afinac": "afinacao", "manut": "manutencao", "entrega": "entrega"}.items():
+            if k in t:
+                tipo = v
+                break
+    if not tipo:
+        await evolution_api.send_text(
+            phone,
+            "⚠️ Opção inválida. Responda com:\n"
+            "  *1* — Afinação\n"
+            "  *2* — Manutenção\n"
+            "  *3* — Entrega\n"
+            "  *4* — Outro"
+        )
         return
 
-    tipo_labels = {"afinacao": "Afinação", "manutencao": "Manutenção", "entrega": "Entrega", "outro": "Outro"}
+    tipo_labels = {
+        "afinacao": "Afinação 🎵",
+        "manutencao": "Manutenção 🔧",
+        "entrega": "Entrega 🚚",
+        "outro": "Outro 📌",
+    }
 
     d = _data(sess)
     d["tipo"] = tipo
     _save(db, sess, "ag_confirmar", d)
 
     dt = datetime.fromisoformat(d["data_hora"])
-
     await evolution_api.send_text(
         phone,
         f"📋 *Resumo do Agendamento:*\n\n"
-        f"📌 *Título:* {d['titulo']}\n"
+        f"📌 *Serviço:* {d['titulo']}\n"
         f"📆 *Data/Hora:* {dt.strftime('%d/%m/%Y às %H:%M')}\n"
         f"🔧 *Tipo:* {tipo_labels[tipo]}\n\n"
         "Confirma? Responda *SIM* ou *NÃO*."
@@ -338,12 +535,13 @@ async def _ag_tipo(db: Session, sess: WhatsappSession, phone: str, text: str):
 
 
 async def _ag_confirmar(db: Session, sess: WhatsappSession, phone: str, text: str):
-    if text.upper() == "NÃO" or text.upper() == "NAO":
+    upper = text.upper().strip()
+    if upper in ("NÃO", "NAO", "N", "CANCELAR"):
         _save(db, sess, "menu", {})
         await evolution_api.send_text(phone, "❌ Agendamento cancelado.\n\n" + MENU_TEXT)
         return
 
-    if text.upper() != "SIM":
+    if upper != "SIM":
         await evolution_api.send_text(phone, "Responda *SIM* para confirmar ou *NÃO* para cancelar.")
         return
 
@@ -364,36 +562,100 @@ async def _ag_confirmar(db: Session, sess: WhatsappSession, phone: str, text: st
         dt = datetime.fromisoformat(d["data_hora"])
         await evolution_api.send_text(
             phone,
-            f"✅ Agendamento #{ev.id} criado com sucesso!\n"
-            f"📆 {dt.strftime('%d/%m/%Y às %H:%M')}\n\n" + MENU_TEXT
+            f"✅ *Agendamento #{ev.id} criado com sucesso!*\n"
+            f"📆 {dt.strftime('%d/%m/%Y às %H:%M')}\n"
+            f"🔧 {d['titulo']}\n\n" + MENU_TEXT
         )
-    except Exception as e:
+    except Exception:
         log.exception("Erro ao criar agendamento via WhatsApp")
-        await evolution_api.send_text(phone, f"❌ Erro ao agendar: {e}\nTente novamente.")
+        await evolution_api.send_text(
+            phone,
+            "❌ Erro ao criar agendamento. Tente novamente."
+        )
         _save(db, sess, "menu", {})
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# CONSULTA AGENDA DO DIA
+# MELHORIA 3: CONSULTA DE AGENDA (hoje / amanhã / semana / DD/MM)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async def _enviar_agenda_dia(db: Session, phone: str):
-    """Envia a lista de eventos do dia atual."""
-    from sqlalchemy import func, cast, Date
+async def _handle_agenda_query(db: Session, sess: WhatsappSession, phone: str):
+    """Pergunta qual período o usuário quer ver."""
+    _save(db, sess, "agenda_periodo", {})
+    await evolution_api.send_text(
+        phone,
+        "📅 *Consultar Agenda*\n\n"
+        "Qual período?\n\n"
+        "1️⃣  Hoje\n"
+        "2️⃣  Amanhã\n"
+        "3️⃣  Próximos 7 dias\n"
+        "  ou envie uma data: `25/03`"
+    )
+
+
+async def _agenda_periodo(db: Session, sess: WhatsappSession, phone: str, text: str):
+    from sqlalchemy import cast, Date
 
     hoje = datetime.now(timezone.utc).date()
+    t = text.strip().lower()
+
+    data_inicio = None
+    data_fim = None
+    label = ""
+
+    if t in ("1", "hoje"):
+        data_inicio = data_fim = hoje
+        label = f"hoje ({hoje.strftime('%d/%m/%Y')})"
+    elif t in ("2", "amanhã", "amanha"):
+        amanha = hoje + timedelta(days=1)
+        data_inicio = data_fim = amanha
+        label = f"amanhã ({amanha.strftime('%d/%m/%Y')})"
+    elif t in ("3", "semana", "7 dias", "próximos 7 dias"):
+        data_inicio = hoje
+        data_fim = hoje + timedelta(days=6)
+        label = f"próximos 7 dias"
+    else:
+        # Tentar parsear DD/MM ou DD/MM/AAAA
+        for fmt in ("%d/%m", "%d/%m/%Y"):
+            try:
+                parsed = datetime.strptime(text.strip(), fmt)
+                if fmt == "%d/%m":
+                    parsed = parsed.replace(year=hoje.year)
+                data_inicio = data_fim = parsed.date()
+                label = parsed.strftime("%d/%m/%Y")
+                break
+            except ValueError:
+                continue
+
+    if data_inicio is None:
+        await evolution_api.send_text(
+            phone,
+            "⚠️ Não entendi. Responda:\n"
+            "  *1* — Hoje\n"
+            "  *2* — Amanhã\n"
+            "  *3* — Próximos 7 dias\n"
+            "  ou envie uma data: `25/03`"
+        )
+        return
+
     eventos = (
         db.query(Agenda)
         .filter(
-            cast(Agenda.data_hora, Date) == hoje,
+            cast(Agenda.data_hora, Date) >= data_inicio,
+            cast(Agenda.data_hora, Date) <= data_fim,
             Agenda.concluido.is_(False),
         )
         .order_by(Agenda.data_hora.asc())
         .all()
     )
 
+    _save(db, sess, "menu", {})
+
     if not eventos:
-        await evolution_api.send_text(phone, "📅 *Agenda do dia*\n\nNenhum evento pendente para hoje! 🎉")
+        await evolution_api.send_text(
+            phone,
+            f"📅 *Agenda — {label}*\n\nNenhum evento pendente! 🎉\n\n" + MENU_TEXT
+        )
         return
 
     tipo_emoji = {
@@ -401,13 +663,20 @@ async def _enviar_agenda_dia(db: Session, phone: str):
         "evento": "📍", "followup": "📞", "outro": "📌",
     }
     linhas = []
+    data_atual = None
     for ev in eventos:
+        ev_date = ev.data_hora.date()
+        if ev_date != data_atual:
+            if data_atual is not None:
+                linhas.append("")
+            linhas.append(f"*{ev_date.strftime('%d/%m/%Y')}*")
+            data_atual = ev_date
         emoji = tipo_emoji.get(ev.tipo, "📌")
         hora = ev.data_hora.strftime("%H:%M")
-        linhas.append(f"  {emoji} *{hora}* — {ev.titulo}")
+        linhas.append(f"  {emoji} {hora} — {ev.titulo}")
 
-    msg = f"📅 *Agenda de hoje ({hoje.strftime('%d/%m/%Y')}):*\n\n" + "\n".join(linhas)
-    await evolution_api.send_text(phone, msg)
+    msg = f"📅 *Agenda — {label}:*\n\n" + "\n".join(linhas)
+    await evolution_api.send_text(phone, msg + "\n\n" + MENU_TEXT)
 
 
 # ─── mapa de estados → handlers ─────────────────────────────────────────────
@@ -426,4 +695,6 @@ STATE_HANDLERS = {
     "ag_data": _ag_data,
     "ag_tipo": _ag_tipo,
     "ag_confirmar": _ag_confirmar,
+    # Agenda por período
+    "agenda_periodo": _agenda_periodo,
 }
