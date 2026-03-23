@@ -54,8 +54,9 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
         return {"status": "ignored", "reason": "sent_by_me"}
 
     # Extrair JID e texto
-    if not remote_jid or not remote_jid.endswith("@s.whatsapp.net"):
-        log.warning(f"📬 IGNORADO: não é DM — remoteJid={remote_jid}")
+    remote_jid = key.get("remoteJid", "")
+    if not remote_jid or not (remote_jid.endswith("@s.whatsapp.net") or remote_jid.endswith("@lid")):
+        log.warning(f"📬 IGNORADO: não é DM — remote_jid={remote_jid}")
         return {"status": "ignored", "reason": "not_a_dm"}
 
     # Extrair texto ou ID de botão/lista
@@ -71,7 +72,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
         log.warning(f"📬 IGNORADO: sem texto — tipos disponíveis: {msg_types}")
         return {"status": "ignored", "reason": "non_text_message"}
 
-    phone = remote_jid.split("@")[0]
+    # Usar o campo 'sender' do corpo para pegar o número real, 
+    # pois o remoteJid pode vir como @lid em multidevice
+    sender = body.get("sender", remote_jid)
+    phone = sender.split("@")[0]
     log.warning(f"📩 MENSAGEM RECEBIDA [{phone}]: '{text[:80]}'")
 
     # EXECUÇÃO ASSÍNCRONA:
