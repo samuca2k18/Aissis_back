@@ -21,32 +21,39 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
     try:
         body = await request.json()
     except Exception:
+        log.warning("WEBHOOK: body inválido (não é JSON)")
         return {"status": "ignored", "reason": "invalid_json"}
 
     event = body.get("event", "unknown")
 
-    # Log de debug para ver o flood de eventos
-    log.info(f"WEBHOOK EVENT [{event}]")
+    # ── Log em WARNING para aparecer no Docker sempre ──────────────────────
+    log.warning(f"📬 WEBHOOK EVENT: [{event}]")
 
     # Só processar mensagens recebidas (upsert)
     if event != "messages.upsert":
         return {"status": "ignored", "reason": f"event_{event}"}
 
-    data = body.get("data", {})
+    data = body.get("data", {})\
+    
+    # Log do remoteJid e messageType para diagnóstico
+    key = data.get("key", {})
+    remote_jid = key.get("remoteJid", "N/A")
+    from_me = key.get("fromMe", False)
     message = data.get("message", {})
+    msg_types = list(message.keys()) if message else []
+    log.warning(f"📬 UPSERT → remoteJid={remote_jid} | fromMe={from_me} | msgTypes={msg_types}")
 
     # Ignorar se não houver corpo de mensagem (ex: só status/presença)
     if not message:
         return {"status": "ignored", "reason": "no_message_body"}
 
     # Ignorar mensagens enviadas por nós (fromMe)
-    key = data.get("key", {})
-    if key.get("fromMe") is True:
+    if from_me is True:
         return {"status": "ignored", "reason": "sent_by_me"}
 
     # Extrair JID e texto
-    remote_jid = key.get("remoteJid", "")
     if not remote_jid or not remote_jid.endswith("@s.whatsapp.net"):
+        log.warning(f"📬 IGNORADO: não é DM — remoteJid={remote_jid}")
         return {"status": "ignored", "reason": "not_a_dm"}
 
     # Extrair texto ou ID de botão/lista
@@ -59,11 +66,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
     )
 
     if not text.strip():
-        # Ver se é uma imagem ou outro tipo que não tem texto
+        log.warning(f"📬 IGNORADO: sem texto — tipos disponíveis: {msg_types}")
         return {"status": "ignored", "reason": "non_text_message"}
 
     phone = remote_jid.split("@")[0]
-    log.info(f"📩 MENSAGEM RECEBIDA [{phone}]: {text[:50]}...")
+    log.warning(f"📩 MENSAGEM RECEBIDA [{phone}]: '{text[:80]}'")
 
     # EXECUÇÃO ASSÍNCRONA:
     # Respondemos 200 OK imediatamente para evitar retries da Evolution API.
