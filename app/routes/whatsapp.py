@@ -68,6 +68,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
         log.warning(f"📬 IGNORADO: sem texto — tipos disponíveis: {msg_types}")
         return {"status": "ignored", "reason": "non_text_message"}
 
+    # ── LOG DE DIAGNÓSTICO (TEMPORÁRIO) ──────────────────────────────────
+    import json
+    log.warning(f"📬 FULL WEBHOOK BODY: {json.dumps(body, ensure_ascii=False)}")
+    
     # O 'sender' no raiz do corpo da Evolution v2 costuma ser o JID Real (@s.whatsapp.net)
     # mesmo que o remoteJid venha como @lid. Vamos priorizar o sender.
     actual_sender = body.get("sender", remote_jid)
