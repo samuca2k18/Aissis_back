@@ -68,19 +68,22 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
         log.warning(f"📬 IGNORADO: sem texto — tipos disponíveis: {msg_types}")
         return {"status": "ignored", "reason": "non_text_message"}
 
-    # O 'phone' usado para o CRM (sessão) deve ser apenas os dígitos do remote_jid
+    # O 'sender' no raiz do corpo da Evolution v2 costuma ser o JID Real (@s.whatsapp.net)
+    # mesmo que o remoteJid venha como @lid. Vamos priorizar o sender.
+    actual_sender = body.get("sender", remote_jid)
+    
+    # Extraímos apenas os dígitos para a sessão (CRM)
     import re
-    phone = "".join(re.findall(f"\\d+", remote_jid.split("@")[0]))
+    phone = "".join(re.findall(r"\d+", actual_sender.split("@")[0]))
     
     if not phone:
-        log.warning(f"📬 IGNORADO: impossível extrair dígitos de remote_jid={remote_jid}")
+        log.warning(f"📬 IGNORADO: impossível extrair dígitos de actual_sender={actual_sender}")
         return {"status": "ignored", "reason": "invalid_phone"}
 
     log.warning(f"📩 MENSAGEM RECEBIDA [{phone}]: '{text[:80]}'")
 
     # EXECUÇÃO ASSÍNCRONA:
-    # Respondemos 200 OK imediatamente para evitar retries da Evolution API.
-    # Passamos o remote_jid para garantir que o bot responda no chat correto (importante para @lid)
-    background_tasks.add_task(handle_message, db, phone, text, remote_jid)
+    # Passamos o 'actual_sender' como o 'target' para garantir entrega
+    background_tasks.add_task(handle_message, db, phone, text, actual_sender)
 
     return {"status": "success", "message": "processing"}
