@@ -34,11 +34,22 @@ async def send_text(phone: str, text: str) -> dict:
         "linkPreview": False
     }
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(_url("message/sendText"), json=payload, headers=_HEADERS)
-        if r.status_code != 201 and r.status_code != 200:
-             log.error(f"Erro Evolution: {r.status_code} - {r.text}")
-        r.raise_for_status()
-        return r.json()
+        try:
+            r = await client.post(_url("message/sendText"), json=payload, headers=_HEADERS)
+            if r.status_code != 201 and r.status_code != 200:
+                log.error(f"Erro Evolution (sendText): {r.status_code} - {r.text}")
+                # Se falhou com JID @lid, tenta converter para @s.whatsapp.net e re-enviar (fallback manual)
+                if "@lid" in phone and r.status_code == 400:
+                    import re
+                    digits = "".join(re.findall(r"\d+", phone.split("@")[0]))
+                    if digits:
+                        log.warning(f"🔄 Fallback LID -> s.whatsapp.net: {digits}")
+                        return await send_text(digits, text)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            log.error(f"ERRO CRÍTICO EVOLUTION (send_text): {e}")
+            return {"status": "error", "message": str(e)}
 
 
 async def send_media(phone: str, media_bytes: bytes, filename: str, caption: str = "") -> dict:
@@ -65,11 +76,22 @@ async def send_media(phone: str, media_bytes: bytes, filename: str, caption: str
         "caption": caption,
     }
     async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(_url("message/sendMedia"), json=payload, headers=_HEADERS)
-        if r.status_code != 201 and r.status_code != 200:
-             log.error(f"Erro Evolution: {r.status_code} - {r.text}")
-        r.raise_for_status()
-        return r.json()
+        try:
+            r = await client.post(_url("message/sendMedia"), json=payload, headers=_HEADERS)
+            if r.status_code != 201 and r.status_code != 200:
+                log.error(f"Erro Evolution (sendMedia): {r.status_code} - {r.text}")
+                # Fallback LID
+                if "@lid" in phone and r.status_code == 400:
+                    import re
+                    digits = "".join(re.findall(r"\d+", phone.split("@")[0]))
+                    if digits:
+                        log.warning(f"🔄 Fallback LID -> s.whatsapp.net (Media): {digits}")
+                        return await send_media(digits, media_bytes, filename, caption)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            log.error(f"ERRO CRÍTICO EVOLUTION (send_media): {e}")
+            return {"status": "error", "message": str(e)}
 
 
 async def send_buttons(phone: str, text: str, buttons: list[dict], title: str = "", footer: str = "") -> dict:
@@ -103,6 +125,7 @@ async def send_buttons(phone: str, text: str, buttons: list[dict], title: str = 
             if r.status_code in (200, 201):
                 return r.json()
             log.warning(f"send_buttons retornou {r.status_code} — usando fallback de texto. Body: {r.text[:200]}")
+            # Se falhou com 400 em LID, o fallback de texto será chamado abaixo com o phone original
     except Exception as e:
         log.warning(f"send_buttons falhou ({e}) — usando fallback de texto")
 
