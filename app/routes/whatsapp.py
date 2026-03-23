@@ -72,22 +72,18 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
     import json
     log.warning(f"📬 FULL WEBHOOK BODY: {json.dumps(body, ensure_ascii=False)}")
     
-    # O 'sender' no raiz do corpo da Evolution v2 costuma ser o JID Real (@s.whatsapp.net)
-    # mesmo que o remoteJid venha como @lid. Vamos priorizar o sender.
-    actual_sender = body.get("sender", remote_jid)
-    
-    # Extraímos apenas os dígitos para a sessão (CRM)
+    # O remote_jid é a fonte da verdade de quem enviou (pode vir como @s.whatsapp.net ou @lid)
     import re
-    phone = "".join(re.findall(r"\d+", actual_sender.split("@")[0]))
+    phone = "".join(re.findall(r"\d+", remote_jid.split("@")[0]))
     
     if not phone:
-        log.warning(f"📬 IGNORADO: impossível extrair dígitos de actual_sender={actual_sender}")
+        log.warning(f"📬 IGNORADO: impossível extrair dígitos de remote_jid={remote_jid}")
         return {"status": "ignored", "reason": "invalid_phone"}
 
     log.warning(f"📩 MENSAGEM RECEBIDA [{phone}]: '{text[:80]}'")
 
     # EXECUÇÃO ASSÍNCRONA:
-    # Passamos o 'actual_sender' como o 'target' para garantir entrega
-    background_tasks.add_task(handle_message, db, phone, text, actual_sender)
+    # Passamos o 'remote_jid' como o 'target' para garantir entrega ao remetente original
+    background_tasks.add_task(handle_message, db, phone, text, remote_jid)
 
     return {"status": "success", "message": "processing"}
