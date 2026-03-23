@@ -24,12 +24,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
         log.warning("WEBHOOK: body inválido (não é JSON)")
         return {"status": "ignored", "reason": "invalid_json"}
 
-    # ── LOG COMPLETO PARA DIAGNÓSTICO ────────────────────────────────────
-    import json
-    log.warning(f"📬 WEBHOOK RECEBIDO: {json.dumps(body, ensure_ascii=False)}")
-    
     event = body.get("event", "unknown")
-    log.warning(f"📬 WEBHOOK EVENT: [{event}]")
+    log.info(f"📬 WEBHOOK EVENT: [{event}]")
 
     # Só processar mensagens recebidas (upsert)
     if event != "messages.upsert":
@@ -80,6 +76,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
 
     # EXECUÇÃO ASSÍNCRONA:
     # Respondemos 200 OK imediatamente para evitar retries da Evolution API.
-    background_tasks.add_task(handle_message, db, phone, text)
+    # Passamos o remote_jid para garantir que o bot responda no chat correto (importante para @lid)
+    background_tasks.add_task(handle_message, db, phone, text, remote_jid)
 
     return {"status": "success", "message": "processing"}

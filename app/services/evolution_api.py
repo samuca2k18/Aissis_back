@@ -23,7 +23,7 @@ def _url(path: str) -> str:
 
 async def send_text(phone: str, text: str) -> dict:
     """Envia uma mensagem de texto simples via Evolution API v2."""
-    # Adicionar sufixo se não houver
+    # Adicionar sufixo se não houver (suporta JIDs completos como @lid ou @s.whatsapp.net)
     if "@" not in phone:
         phone = f"{phone}@s.whatsapp.net"
 
@@ -81,10 +81,12 @@ async def send_buttons(phone: str, text: str, buttons: list[dict], title: str = 
 
     formatted_buttons = []
     for btn in buttons:
+        label = btn.get("label", btn.get("displayText", btn.get("text")))
         formatted_buttons.append({
             "type": "reply",
-            "displayText": btn.get("label", btn.get("displayText")),
-            "id": btn.get("id", btn.get("label"))
+            "displayText": label,
+            "text": label,
+            "id": str(btn.get("id", label))
         })
 
     payload = {
