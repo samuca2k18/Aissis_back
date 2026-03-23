@@ -24,9 +24,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
         log.warning("WEBHOOK: body inválido (não é JSON)")
         return {"status": "ignored", "reason": "invalid_json"}
 
+    # ── LOG COMPLETO PARA DIAGNÓSTICO ────────────────────────────────────
+    import json
+    log.warning(f"📬 WEBHOOK RECEBIDO: {json.dumps(body, ensure_ascii=False)}")
+    
     event = body.get("event", "unknown")
-
-    # ── Log em WARNING para aparecer no Docker sempre ──────────────────────
     log.warning(f"📬 WEBHOOK EVENT: [{event}]")
 
     # Só processar mensagens recebidas (upsert)
