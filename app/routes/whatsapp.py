@@ -49,13 +49,17 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
     if not remote_jid or not remote_jid.endswith("@s.whatsapp.net"):
         return {"status": "ignored", "reason": "not_a_dm"}
 
+    # Extrair texto ou ID de botão/lista
     text = (
         message.get("conversation")
         or message.get("extendedTextMessage", {}).get("text")
+        or message.get("buttonsResponseMessage", {}).get("selectedButtonId")
+        or message.get("listResponseMessage", {}).get("singleSelectReply", {}).get("selectedRowId")
         or ""
     )
 
     if not text.strip():
+        # Ver se é uma imagem ou outro tipo que não tem texto
         return {"status": "ignored", "reason": "non_text_message"}
 
     phone = remote_jid.split("@")[0]

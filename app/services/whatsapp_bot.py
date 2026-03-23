@@ -3,10 +3,11 @@ Máquina de estados do bot do WhatsApp.
 
 Melhorias implementadas:
   1. UX aprimorada: resumos formatados, erros com exemplos, timeout de sessão
-  2. Atalhos de palavras-chave: "oi", "menu", "orçamento", "agendar"
+  2. Ativador por palavra-chave: apenas "menu" ativa o bot (modo silencioso)
   3. Consulta de agenda por data: "hoje", "amanhã", "semana" ou DD/MM
   4. Envio do PDF por WhatsApp após confirmar orçamento
   5. Reconhecimento de cliente existente pelo número de telefone
+  6. Modo Silencioso: bot no número pessoal, ignora tudo até receber "menu"
 """
 
 import json
@@ -25,23 +26,23 @@ from app.services.pdf_generator import gerar_orcamento_pdf
 
 log = logging.getLogger(__name__)
 
-# ─── Timeout de sessão: 30 minutos sem interação → resetar ─────────────────
+# ─── Timeout de sessão: 30 minutos sem interação → adormecer silenciosamente ─
 SESSION_TIMEOUT_MINUTES = 30
 
 MENU_TEXT = (
     "🎹 *Assis Pianos — Atendimento Automático*\n\n"
-    "Olá! Como posso ajudar? Escolha uma opção:\n\n"
-    "1️⃣  Solicitar *Orçamento*\n"
-    "2️⃣  Agendar *Afinação / Manutenção*\n"
-    "3️⃣  Consultar *Agenda*\n"
-    "0️⃣  Voltar ao menu\n\n"
-    "_Responda com o número da opção._"
+    "Olá! Como posso ajudar? Escolha uma opção abaixo:"
 )
 
-# ─── palavras-chave para atalho ─────────────────────────────────────────────
-_KW_MENU       = {"menu", "oi", "olá", "ola", "boa tarde", "bom dia", "boa noite", "inicio", "início"}
+MENU_BUTTONS = [
+    {"label": "Solicitar Orçamento", "id": "1"},
+    {"label": "Agendar Serviço", "id": "2"},
+    {"label": "Consultar Agenda", "id": "3"},
+]
+
+# ─── palavras-chave para atalho (SOMENTE dentro do fluxo ativo) ─────────────
 _KW_ORCAMENTO  = {"orçamento", "orcamento", "orcar", "orçar", "preço", "preco", "valor", "quanto"}
-_KW_AGENDAR    = {"agendar", "agendamento", "agenda", "marcar", "afinação", "afinacao"}
+_KW_AGENDAR    = {"agendar", "agendamento", "marcar"}
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
@@ -49,7 +50,8 @@ _KW_AGENDAR    = {"agendar", "agendamento", "agenda", "marcar", "afinação", "a
 def _get_or_create_session(db: Session, phone: str) -> WhatsappSession:
     sess = db.query(WhatsappSession).filter(WhatsappSession.phone == phone).first()
     if not sess:
-        sess = WhatsappSession(phone=phone, state="menu", data_json="{}")
+        # Inicia em modo silencioso: bot só ativa quando o usuário enviar "menu"
+        sess = WhatsappSession(phone=phone, state="sleeping", data_json="{}")
         db.add(sess)
         db.commit()
         db.refresh(sess)
@@ -90,20 +92,6 @@ def _is_timed_out(sess: WhatsappSession) -> bool:
         return False
 
 
-def _detect_keyword(text: str) -> str | None:
-    """Detecta palavras-chave e retorna o atalho: 'menu', 'orcamento' ou 'agendar'."""
-    t = text.lower().strip()
-    if t in _KW_MENU:
-        return "menu"
-    for kw in _KW_ORCAMENTO:
-        if kw in t:
-            return "orcamento"
-    for kw in _KW_AGENDAR:
-        if kw in t:
-            return "agendar"
-    return None
-
-
 def _fmt_brl(valor: float) -> str:
     s = f"{valor:,.2f}"
     return "R$ " + s.replace(",", "X").replace(".", ",").replace("X", ".")
@@ -116,30 +104,33 @@ async def handle_message(db: Session, phone: str, text: str) -> None:
     text = text.strip()
     sess = _get_or_create_session(db, phone)
 
-    # ── Melhoria 1: Timeout de sessão ─────────────────────────────────────
-    if sess.state != "menu" and _is_timed_out(sess):
-        _save(db, sess, "menu", {})
-        await evolution_api.send_text(
-            phone,
-            "⏱️ _Sua sessão expirou por inatividade._\n\n" + MENU_TEXT
-        )
-        return
-
-    # ── Comando global de reset ────────────────────────────────────────────
-    if text == "0":
-        if sess.state != "menu":
+    # ── MODO SILENCIOSO: bot está dormindo, ignorar tudo exceto "menu" ───────
+    if sess.state == "sleeping":
+        if text.lower() == "menu":
             _save(db, sess, "menu", {})
-            await evolution_api.send_text(phone, MENU_TEXT)
+            await evolution_api.send_buttons(phone, MENU_TEXT, MENU_BUTTONS)
+        # Qualquer outra mensagem: ignorar completamente (sem resposta)
         return
 
-    # ── Melhoria 2: Atalhos por palavras-chave ────────────────────────────
-    kw = _detect_keyword(text)
-    if kw and sess.state == "menu":
-        if kw == "orcamento":
-            # Melhoria 5: reconhecer cliente já cadastrado pelo número
+    # ── Timeout de sessão: adormecer silenciosamente ──────────────────────
+    if sess.state != "menu" and _is_timed_out(sess):
+        _save(db, sess, "sleeping", {})
+        # Sem mensagem ao usuário: apenas adormecer silenciosamente
+        return
+
+    # ── Comando global: "0" ou "sair" adormece o bot silenciosamente ───────
+    if text in ("0", "sair", "Sair", "SAIR"):
+        _save(db, sess, "sleeping", {})
+        # Sem resposta: desaparece silenciosamente
+        return
+
+    # ── Atalhos por palavras-chave (dentro do fluxo ativo) ──────────────
+    if sess.state == "menu":
+        t = text.lower().strip()
+        if any(kw in t for kw in _KW_ORCAMENTO):
             await _iniciar_orcamento(db, sess, phone)
             return
-        elif kw == "agendar":
+        if any(kw in t for kw in _KW_AGENDAR):
             _save(db, sess, "ag_titulo", {})
             await evolution_api.send_text(
                 phone,
@@ -147,7 +138,11 @@ async def handle_message(db: Session, phone: str, text: str) -> None:
             )
             return
 
-    handler = STATE_HANDLERS.get(sess.state, _handle_menu)
+    handler = STATE_HANDLERS.get(sess.state)
+    if handler is None:
+        # Estado desconhecido ou sleeping — mostrar menu
+        await evolution_api.send_buttons(phone, MENU_TEXT, MENU_BUTTONS)
+        return
     await handler(db, sess, phone, text)
 
 
@@ -167,7 +162,7 @@ async def _handle_menu(db: Session, sess: WhatsappSession, phone: str, text: str
     elif text == "3":
         await _handle_agenda_query(db, sess, phone)
     else:
-        await evolution_api.send_text(phone, MENU_TEXT)
+        await evolution_api.send_buttons(phone, MENU_TEXT, MENU_BUTTONS)
 
 
 # ── Melhoria 5: Iniciar orçamento reconhecendo cliente existente ─────────────
@@ -315,7 +310,7 @@ async def _orc_pagamento(db: Session, sess: WhatsappSession, phone: str, text: s
     total = sum(i["valor"] for i in itens)
     resumo = "\n".join(f"  • {i['descricao']} — {_fmt_brl(i['valor'])}" for i in itens)
 
-    await evolution_api.send_text(
+    await evolution_api.send_buttons(
         phone,
         f"📄 *Resumo do Orçamento:*\n\n"
         f"👤 *Cliente:* {d['cliente_nome']}\n"
@@ -324,7 +319,11 @@ async def _orc_pagamento(db: Session, sess: WhatsappSession, phone: str, text: s
         f"📦 *Itens:*\n{resumo}\n\n"
         f"💰 *Total: {_fmt_brl(total)}*\n"
         f"💳 *Pagamento:* {d['condicoes_pagamento']}\n\n"
-        "Confirma? Responda *SIM* ou *NÃO*."
+        "Confirma?",
+        buttons=[
+            {"label": "SIM", "id": "SIM"},
+            {"label": "NÃO", "id": "NÃO"}
+        ]
     )
 
 
@@ -481,13 +480,15 @@ async def _ag_data(db: Session, sess: WhatsappSession, phone: str, text: str):
     d = _data(sess)
     d["data_hora"] = dt.isoformat()
     _save(db, sess, "ag_tipo", d)
-    await evolution_api.send_text(
+    await evolution_api.send_buttons(
         phone,
-        "🔧 Qual o *tipo* do serviço?\n\n"
-        "1️⃣  Afinação\n"
-        "2️⃣  Manutenção\n"
-        "3️⃣  Entrega\n"
-        "4️⃣  Outro"
+        "🔧 Qual o *tipo* do serviço?",
+        buttons=[
+            {"label": "Afinação", "id": "1"},
+            {"label": "Manutenção", "id": "2"},
+            {"label": "Entrega", "id": "3"},
+            {"label": "Outro", "id": "4"},
+        ]
     )
 
 
@@ -524,13 +525,17 @@ async def _ag_tipo(db: Session, sess: WhatsappSession, phone: str, text: str):
     _save(db, sess, "ag_confirmar", d)
 
     dt = datetime.fromisoformat(d["data_hora"])
-    await evolution_api.send_text(
+    await evolution_api.send_buttons(
         phone,
         f"📋 *Resumo do Agendamento:*\n\n"
         f"📌 *Serviço:* {d['titulo']}\n"
         f"📆 *Data/Hora:* {dt.strftime('%d/%m/%Y às %H:%M')}\n"
         f"🔧 *Tipo:* {tipo_labels[tipo]}\n\n"
-        "Confirma? Responda *SIM* ou *NÃO*."
+        "Confirma?",
+        buttons=[
+            {"label": "SIM", "id": "SIM"},
+            {"label": "NÃO", "id": "NÃO"}
+        ]
     )
 
 
@@ -582,14 +587,16 @@ async def _ag_confirmar(db: Session, sess: WhatsappSession, phone: str, text: st
 async def _handle_agenda_query(db: Session, sess: WhatsappSession, phone: str):
     """Pergunta qual período o usuário quer ver."""
     _save(db, sess, "agenda_periodo", {})
-    await evolution_api.send_text(
+    await evolution_api.send_buttons(
         phone,
         "📅 *Consultar Agenda*\n\n"
-        "Qual período?\n\n"
-        "1️⃣  Hoje\n"
-        "2️⃣  Amanhã\n"
-        "3️⃣  Próximos 7 dias\n"
-        "  ou envie uma data: `25/03`"
+        "Qual período deseja visualizar?",
+        buttons=[
+            {"label": "Hoje", "id": "1"},
+            {"label": "Amanhã", "id": "2"},
+            {"label": "Próximos 7 dias", "id": "3"},
+        ],
+        footer="Ou envie uma data específica: 25/03"
     )
 
 
@@ -679,9 +686,12 @@ async def _agenda_periodo(db: Session, sess: WhatsappSession, phone: str, text: 
     await evolution_api.send_text(phone, msg + "\n\n" + MENU_TEXT)
 
 
-# ─── mapa de estados → handlers ─────────────────────────────────────────────
+# ─── mapa de estados → handlers ───────────────────────────────────────────────────────
 
 STATE_HANDLERS = {
+    # Modo silencioso: sem handler (tratado diretamente em handle_message)
+    "sleeping": None,
+    # Menu principal
     "menu": _handle_menu,
     # Orçamento
     "orc_nome": _orc_nome,
