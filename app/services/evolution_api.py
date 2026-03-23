@@ -73,12 +73,12 @@ async def send_media(phone: str, media_bytes: bytes, filename: str, caption: str
 
 
 async def send_buttons(phone: str, text: str, buttons: list[dict], title: str = "", footer: str = "") -> dict:
-    """Envia mensagens com botões interativos via Evolution API v2."""
+    """Envia mensagens com botões interativos via Evolution API v2.
+    Se a API não suportar botões, faz fallback para texto simples com opções numeradas.
+    """
     if "@" not in phone:
         phone = f"{phone}@s.whatsapp.net"
 
-    # Formatar botões para o padrão da Evolution
-    # Cada botão deve ser: {"type": "reply", "displayText": "Label", "id": "ID"}
     formatted_buttons = []
     for btn in buttons:
         formatted_buttons.append({
@@ -95,9 +95,21 @@ async def send_buttons(phone: str, text: str, buttons: list[dict], title: str = 
         "buttons": formatted_buttons
     }
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(_url("message/sendButtons"), json=payload, headers=_HEADERS)
-        if r.status_code != 201 and r.status_code != 200:
-             log.error(f"Erro Evolution (Buttons): {r.status_code} - {r.text}")
-        r.raise_for_status()
-        return r.json()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(_url("message/sendButtons"), json=payload, headers=_HEADERS)
+            if r.status_code in (200, 201):
+                return r.json()
+            log.warning(f"send_buttons retornou {r.status_code} — usando fallback de texto. Body: {r.text[:200]}")
+    except Exception as e:
+        log.warning(f"send_buttons falhou ({e}) — usando fallback de texto")
+
+    # ── Fallback: texto simples com opções numeradas ──────────────────────────
+    opcoes = "\n".join(
+        f"{btn.get('id')}️⃣  {btn.get('label', btn.get('displayText'))}"
+        for btn in buttons
+    )
+    fallback_text = f"{text}\n\n{opcoes}"
+    if footer:
+        fallback_text += f"\n\n_{footer}_"
+    return await send_text(phone, fallback_text)
