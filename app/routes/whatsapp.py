@@ -68,10 +68,14 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
         log.warning(f"📬 IGNORADO: sem texto — tipos disponíveis: {msg_types}")
         return {"status": "ignored", "reason": "non_text_message"}
 
-    # Usar o campo 'sender' do corpo para pegar o número real, 
-    # pois o remoteJid pode vir como @lid em multidevice
-    sender = body.get("sender", remote_jid)
-    phone = sender.split("@")[0]
+    # O 'phone' usado para o CRM (sessão) deve ser apenas os dígitos do remote_jid
+    import re
+    phone = "".join(re.findall(f"\\d+", remote_jid.split("@")[0]))
+    
+    if not phone:
+        log.warning(f"📬 IGNORADO: impossível extrair dígitos de remote_jid={remote_jid}")
+        return {"status": "ignored", "reason": "invalid_phone"}
+
     log.warning(f"📩 MENSAGEM RECEBIDA [{phone}]: '{text[:80]}'")
 
     # EXECUÇÃO ASSÍNCRONA:
