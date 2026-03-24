@@ -18,7 +18,10 @@ _HEADERS = {
 
 
 # Cache de LID → JID real (evita consultas repetidas)
-_lid_cache: dict[str, str] = {}
+# Mapeamentos conhecidos podem ser adicionados aqui manualmente
+_lid_cache: dict[str, str] = {
+    "244770354012263@lid": "5585996224425@s.whatsapp.net",  # Maressa
+}
 
 
 def _url(path: str) -> str:

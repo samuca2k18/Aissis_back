@@ -455,7 +455,7 @@ async def _ag_titulo(db: Session, sess: WhatsappSession, phone: str, text: str, 
     )
 
 
-async def _ag_data(db: Session, sess: WhatsappSession, phone: str, text: str):
+async def _ag_data(db: Session, sess: WhatsappSession, phone: str, text: str, target: str):
     t = text.strip().lower()
     dt = None
 
