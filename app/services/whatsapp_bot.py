@@ -40,6 +40,11 @@ MENU_BUTTONS = [
     {"label": "Consultar Agenda", "id": "3"},
 ]
 
+MENU_TEXT_FALLBACK = (
+    f"{MENU_TEXT}\n\n"
+    + "\n".join(f"{b['id']}️⃣  {b['label']}" for b in MENU_BUTTONS)
+)
+
 # ─── palavras-chave para atalho (SOMENTE dentro do fluxo ativo) ─────────────
 _KW_ORCAMENTO  = {"orçamento", "orcamento", "orcar", "orçar", "preço", "preco", "valor", "quanto"}
 _KW_AGENDAR    = {"agendar", "agendamento", "marcar"}
@@ -425,7 +430,7 @@ async def _orc_confirmar(db: Session, sess: WhatsappSession, phone: str, text: s
         await evolution_api.send_text(
             target,
             f"✅ *Orçamento #{doc.id} gerado com sucesso!*\n"
-            f"O PDF foi enviado acima. ☝️\n\n" + MENU_TEXT
+            f"O PDF foi enviado acima. ☝️\n\n" + MENU_TEXT_FALLBACK
         )
 
     except Exception as e:
@@ -560,7 +565,7 @@ async def _ag_confirmar(db: Session, sess: WhatsappSession, phone: str, text: st
     upper = text.upper().strip()
     if upper in ("NÃO", "NAO", "N", "CANCELAR"):
         _save(db, sess, "menu", {})
-        await evolution_api.send_text(target, "❌ Agendamento cancelado.\n\n" + MENU_TEXT)
+        await evolution_api.send_text(target, "❌ Agendamento cancelado.\n\n" + MENU_TEXT_FALLBACK)
         return
 
     if upper != "SIM":
@@ -586,7 +591,7 @@ async def _ag_confirmar(db: Session, sess: WhatsappSession, phone: str, text: st
             target,
             f"✅ *Agendamento #{ev.id} criado com sucesso!*\n"
             f"📆 {dt.strftime('%d/%m/%Y às %H:%M')}\n"
-            f"🔧 {d['titulo']}\n\n" + MENU_TEXT
+            f"🔧 {d['titulo']}\n\n" + MENU_TEXT_FALLBACK
         )
     except Exception:
         log.exception("Erro ao criar agendamento via WhatsApp")
@@ -678,7 +683,7 @@ async def _agenda_periodo(db: Session, sess: WhatsappSession, phone: str, text: 
     if not eventos:
         await evolution_api.send_text(
             target,
-            f"📅 *Agenda — {label}*\n\nNenhum evento pendente! 🎉\n\n" + MENU_TEXT
+            f"📅 *Agenda — {label}*\n\nNenhum evento pendente! 🎉\n\n" + MENU_TEXT_FALLBACK
         )
         return
 
@@ -700,7 +705,7 @@ async def _agenda_periodo(db: Session, sess: WhatsappSession, phone: str, text: 
         linhas.append(f"  {emoji} {hora} — {ev.titulo}")
 
     msg = f"📅 *Agenda — {label}:*\n\n" + "\n".join(linhas)
-    await evolution_api.send_text(target, msg + "\n\n" + MENU_TEXT)
+    await evolution_api.send_text(target, msg + "\n\n" + MENU_TEXT_FALLBACK)
 
 
 # ─── mapa de estados → handlers ───────────────────────────────────────────────────────
