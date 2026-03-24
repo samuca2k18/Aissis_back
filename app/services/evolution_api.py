@@ -1,6 +1,7 @@
 """Cliente HTTP para a Evolution API (envio de mensagens e mídia via WhatsApp)."""
 
 import logging
+import mimetypes
 from pathlib import Path
 
 import httpx
