@@ -620,7 +620,7 @@ async def _handle_agenda_query(db: Session, sess: WhatsappSession, phone: str, t
 async def _agenda_periodo(db: Session, sess: WhatsappSession, phone: str, text: str, target: str):
     from sqlalchemy import cast, Date
 
-    hoje = datetime.now(timezone.utc).date()
+    hoje = datetime.now(timezone(timedelta(hours=-3))).date()
     t = text.strip().lower()
 
     data_inicio = None
@@ -677,7 +677,7 @@ async def _agenda_periodo(db: Session, sess: WhatsappSession, phone: str, text: 
 
     if not eventos:
         await evolution_api.send_text(
-            phone,
+            target,
             f"📅 *Agenda — {label}*\n\nNenhum evento pendente! 🎉\n\n" + MENU_TEXT
         )
         return
