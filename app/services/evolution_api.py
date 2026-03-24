@@ -26,51 +26,64 @@ def _url(path: str) -> str:
 
 
 async def resolve_lid(lid_jid: str) -> str:
-    """Resolve um JID @lid para o JID real @s.whatsapp.net via contacts da Evolution API.
+    """Resolve um JID @lid para o JID real @s.whatsapp.net.
+    Tenta múltiplas estratégias: findChats, findContacts.
     Retorna o JID real se encontrado, caso contrário retorna o próprio lid_jid.
     """
     if lid_jid in _lid_cache:
         return _lid_cache[lid_jid]
 
     try:
-        # Tenta buscar o contato pelo ID do LID
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(
-                _url("chat/findContacts"),
-                json={"where": {"id": lid_jid}},
-                headers=_HEADERS,
-            )
-            if r.status_code in (200, 201):
-                contacts = r.json()
-                if isinstance(contacts, list) and contacts:
-                    # Procurar um campo que contenha o número real
-                    for contact in contacts:
-                        # O campo 'owner' ou 'number' pode conter o número real
-                        number = contact.get("number") or contact.get("pushName")
-                        real_jid = contact.get("remoteJid") or contact.get("jid")
-                        
-                        # Se encontrou um JID @s.whatsapp.net diferente do @lid
-                        if real_jid and "@s.whatsapp.net" in real_jid:
-                            _lid_cache[lid_jid] = real_jid
-                            log.warning(f"🔗 LID Resolvido: {lid_jid} → {real_jid}")
-                            return real_jid
-                        
-                        # Se tem um campo 'number' com dígitos
-                        if number and number.replace("+", "").isdigit():
-                            resolved = f"{number.replace('+', '')}@s.whatsapp.net"
-                            _lid_cache[lid_jid] = resolved
-                            log.warning(f"🔗 LID Resolvido via number: {lid_jid} → {resolved}")
-                            return resolved
-                    
-                    # Log do que foi retornado para diagnóstico
-                    log.warning(f"🔍 Contacts para LID {lid_jid}: {contacts[:2]}")
-                else:
-                    log.warning(f"🔍 Nenhum contato encontrado para LID {lid_jid}")
-            else:
-                log.warning(f"🔍 findContacts retornou {r.status_code}: {r.text[:200]}")
-    except Exception as e:
-        log.warning(f"🔍 Erro ao resolver LID {lid_jid}: {e}")
+            # Estratégia 1: findChats — busca o chat pelo remoteJid do LID
+            try:
+                r = await client.post(
+                    _url("chat/findChats"),
+                    json={"where": {"remoteJid": lid_jid}},
+                    headers=_HEADERS,
+                )
+                if r.status_code in (200, 201):
+                    chats = r.json()
+                    log.warning(f"🔍 findChats para {lid_jid}: {str(chats)[:500]}")
+                    if isinstance(chats, list):
+                        for chat in chats:
+                            # Procura campo 'phone' ou 'number' com o telefone real
+                            for field in ("phone", "number", "name"):
+                                val = chat.get(field, "")
+                                if val and val.replace("+", "").replace(" ", "").isdigit():
+                                    digits = val.replace("+", "").replace(" ", "")
+                                    resolved = f"{digits}@s.whatsapp.net"
+                                    _lid_cache[lid_jid] = resolved
+                                    log.warning(f"🔗 LID Resolvido via chat.{field}: {lid_jid} → {resolved}")
+                                    return resolved
+            except Exception as e:
+                log.warning(f"🔍 Erro findChats: {e}")
 
+            # Estratégia 2: findContacts — busca contato pelo ID do LID
+            try:
+                r = await client.post(
+                    _url("chat/findContacts"),
+                    json={"where": {"id": lid_jid}},
+                    headers=_HEADERS,
+                )
+                if r.status_code in (200, 201):
+                    contacts = r.json()
+                    log.warning(f"🔍 findContacts para {lid_jid}: {str(contacts)[:500]}")
+                    if isinstance(contacts, list):
+                        for contact in contacts:
+                            # Procura o campo 'id' que seja @s.whatsapp.net
+                            cid = contact.get("id", "")
+                            if "@s.whatsapp.net" in cid:
+                                _lid_cache[lid_jid] = cid
+                                log.warning(f"🔗 LID Resolvido via contact.id: {lid_jid} → {cid}")
+                                return cid
+            except Exception as e:
+                log.warning(f"🔍 Erro findContacts: {e}")
+
+    except Exception as e:
+        log.warning(f"🔍 Erro geral ao resolver LID {lid_jid}: {e}")
+
+    log.warning(f"⚠️ LID não resolvido: {lid_jid} — mensagem pode não ser entregue")
     return lid_jid
 
 

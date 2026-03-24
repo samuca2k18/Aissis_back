@@ -88,6 +88,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
     if remote_jid.endswith("@lid"):
         target = await resolve_lid(remote_jid)
         log.warning(f"🔗 Target resolvido: {remote_jid} → {target}")
+        # Se conseguimos resolver, usamos os dígitos do target real como phone
+        # Isso garante que a sessão do bot seja a mesma, independente de @lid ou @s.whatsapp.net
+        if target != remote_jid:
+            phone = "".join(re.findall(r"\d+", target.split("@")[0]))
 
     log.warning(f"📩 MENSAGEM RECEBIDA [{phone}]: '{text[:80]}' | target={target}")
 
