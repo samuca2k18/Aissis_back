@@ -80,6 +80,17 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
         log.warning(f"📬 IGNORADO: impossível extrair dígitos de remote_jid={remote_jid}")
         return {"status": "ignored", "reason": "invalid_phone"}
 
+    # ── Normalização de número BR ─────────────────────────────────────────
+    # WhatsApp às vezes usa formato antigo de 8 dígitos (ex: 558596224425)
+    # e às vezes o novo com 9 (ex: 5585996224425). Normalizamos para 13 dígitos.
+    def _normalize_br_phone(p: str) -> str:
+        if len(p) == 12 and p.startswith("55"):
+            # 55 + DDD(2) + 8 dígitos → inserir o '9' após o DDD
+            return p[:4] + "9" + p[4:]
+        return p
+
+    phone = _normalize_br_phone(phone)
+
     # ── Resolver LID → número real ────────────────────────────────────────
     # Se o JID é @lid, precisamos descobrir o número real do contato
     # para que a Evolution API consiga enviar a resposta
@@ -89,9 +100,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
         target = await resolve_lid(remote_jid)
         log.warning(f"🔗 Target resolvido: {remote_jid} → {target}")
         # Se conseguimos resolver, usamos os dígitos do target real como phone
-        # Isso garante que a sessão do bot seja a mesma, independente de @lid ou @s.whatsapp.net
         if target != remote_jid:
-            phone = "".join(re.findall(r"\d+", target.split("@")[0]))
+            phone = _normalize_br_phone("".join(re.findall(r"\d+", target.split("@")[0])))
 
     log.warning(f"📩 MENSAGEM RECEBIDA [{phone}]: '{text[:80]}' | target={target}")
 
