@@ -460,7 +460,9 @@ async def _ag_data(db: Session, sess: WhatsappSession, phone: str, text: str, ta
     dt = None
 
     # Melhoria 3: aceitar "hoje HH:MM" e "amanhã HH:MM"
-    hoje = datetime.now(timezone.utc).date()
+    # Usando fuso horário de Brasília (UTC-3)
+    BRT = timezone(timedelta(hours=-3))
+    hoje = datetime.now(BRT).date()
     if t.startswith("hoje ") or t.startswith("hoje,"):
         hora_str = t.split(" ", 1)[1].strip()
         try:
