@@ -99,17 +99,25 @@ def _fmt_brl(valor: float) -> str:
 
 # ─── handler principal ──────────────────────────────────────────────────────
 
-async def handle_message(db: Session, phone: str, text: str, recipient_jid: str = None) -> None:
+async def handle_message(db: Session, phone: str, text: str, recipient_jid: str = None, message_key: dict = None) -> None:
     """
     Processa uma mensagem recebida e responde via Evolution API.
     phone: apenas os dígitos (ex: 558599... para CRM)
     recipient_jid: ID completo do chat (ex: ...@lid ou ...@s.whatsapp.net para resposta)
+    message_key: objeto 'key' da mensagem original (usado para bypass do bloqueio de @lid via 'quoted')
     """
     text = text.strip()
     sess = _get_or_create_session(db, phone)
     
     # Se não informar JID completo, tenta montar o padrão
     target = recipient_jid or f"{phone}@s.whatsapp.net"
+
+    # Bypass de @lid: a Evolution API bloqueia envios diretos via 'exists: false'
+    # Se cotarmos a mensagem original, a API entrega.
+    if "@lid" in target and message_key:
+        msg_id = message_key.get("id")
+        if msg_id:
+            target = f"{target}|{msg_id}"
 
     # ── MODO SILENCIOSO: bot está dormindo, ignorar tudo exceto "menu" ───────
     if sess.state == "sleeping":
@@ -122,8 +130,8 @@ async def handle_message(db: Session, phone: str, text: str, recipient_jid: str 
     # ── Timeout de sessão: adormecer silenciosamente ──────────────────────
     if sess.state != "menu" and _is_timed_out(sess):
         _save(db, sess, "sleeping", {})
-        # Sem mensagem ao usuário: apenas adormecer silenciosamente
-        return
+        # Não damos 'return' para que a mensagem atual (ex: 'menu') possa acordá-lo
+        sess.state = "sleeping"
 
     # ── Comando global: "0" ou "sair" adormece o bot silenciosamente ───────
     if text in ("0", "sair", "Sair", "SAIR"):
@@ -169,7 +177,7 @@ async def _handle_menu(db: Session, sess: WhatsappSession, phone: str, text: str
     elif text == "3":
         await _handle_agenda_query(db, sess, phone, target)
     else:
-        await evolution_api.send_buttons(phone, MENU_TEXT, MENU_BUTTONS)
+        await evolution_api.send_buttons(target, MENU_TEXT, MENU_BUTTONS)
 
 
 # ── Melhoria 5: Iniciar orçamento reconhecendo cliente existente ─────────────

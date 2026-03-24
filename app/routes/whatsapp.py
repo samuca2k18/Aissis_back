@@ -84,6 +84,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
 
     # EXECUÇÃO ASSÍNCRONA:
     # Passamos o 'remote_jid' como o 'target' para garantir entrega ao remetente original
-    background_tasks.add_task(handle_message, db, phone, text, remote_jid)
+    # Passamos o 'key' para permitir o "quoted reply" caso seja um LID bloqueado
+    background_tasks.add_task(handle_message, db, phone, text, remote_jid, key)
 
     return {"status": "success", "message": "processing"}

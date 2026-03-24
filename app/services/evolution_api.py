@@ -23,15 +23,25 @@ def _url(path: str) -> str:
 
 async def send_text(phone: str, text: str) -> dict:
     """Envia uma mensagem de texto simples via Evolution API v2."""
-    # Adicionar sufixo se não houver (suporta JIDs completos como @lid ou @s.whatsapp.net)
-    if "@" not in phone:
+    # Adicionar sufixo
+    if not phone.endswith("@s.whatsapp.net") and not phone.endswith("@g.us") and not phone.endswith("@lid") and "|" not in phone:
         phone = f"{phone}@s.whatsapp.net"
+
+    options = {"delay": 0, "linkPreview": False}
+    if "|" in phone:
+        phone, msg_id = phone.split("|", 1)
+        options["quoted"] = {
+            "key": {
+                "remoteJid": phone,
+                "fromMe": False,
+                "id": msg_id
+            }
+        }
 
     payload = {
         "number": phone,
         "text": text,
-        "delay": 1200,
-        "linkPreview": False
+        "options": options
     }
     async with httpx.AsyncClient(timeout=30) as client:
         try:
@@ -56,24 +66,33 @@ async def send_media(phone: str, media_bytes: bytes, filename: str, caption: str
     """Envia um documento via Evolution API v2 usando base64."""
     import base64
 
-    if "@" not in phone:
+    if not phone.endswith("@s.whatsapp.net") and not phone.endswith("@g.us") and not phone.endswith("@lid") and "|" not in phone:
         phone = f"{phone}@s.whatsapp.net"
 
-    media_b64 = base64.b64encode(media_bytes).decode()
-    ext = Path(filename).suffix.lstrip(".")
-    mime = {
-        "pdf": "application/pdf",
-        "png": "image/png",
-        "jpg": "image/jpeg",
-    }.get(ext, "application/octet-stream")
+    b64_data = base64.b64encode(media_bytes).decode("utf-8")
+    mime_type, _ = mimetypes.guess_type(filename)
+    if not mime_type:
+        mime_type = "application/octet-stream"
+        
+    options = {"delay": 0}
+    if "|" in phone:
+        phone, msg_id = phone.split("|", 1)
+        options["quoted"] = {
+            "key": {
+                "remoteJid": phone,
+                "fromMe": False,
+                "id": msg_id
+            }
+        }
 
     payload = {
         "number": phone,
         "mediatype": "document",
-        "media": media_b64,
-        "mimetype": mime,
+        "mimetype": mime_type,
+        "media": b64_data,
         "fileName": filename,
         "caption": caption,
+        "options": options
     }
     async with httpx.AsyncClient(timeout=60) as client:
         try:
@@ -98,8 +117,13 @@ async def send_buttons(phone: str, text: str, buttons: list[dict], title: str = 
     """Envia mensagens com botões interativos via Evolution API v2.
     Se a API não suportar botões, faz fallback para texto simples com opções numeradas.
     """
-    if "@" not in phone:
+    if "@" not in phone and "|" not in phone:
         phone = f"{phone}@s.whatsapp.net"
+        
+    # Extrai msg_id se existir, para o fallback
+    msg_id = None
+    if "|" in phone:
+        phone, msg_id = phone.split("|", 1)
 
     formatted_buttons = []
     for btn in buttons:
@@ -137,4 +161,7 @@ async def send_buttons(phone: str, text: str, buttons: list[dict], title: str = 
     fallback_text = f"{text}\n\n{opcoes}"
     if footer:
         fallback_text += f"\n\n_{footer}_"
-    return await send_text(phone, fallback_text)
+        
+    # Re-embutimos o msg_id para garantir que o send_text consiga fazer o quoted reply
+    fallback_phone = f"{phone}|{msg_id}" if msg_id else phone
+    return await send_text(fallback_phone, fallback_text)
