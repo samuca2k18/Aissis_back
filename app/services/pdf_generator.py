@@ -40,7 +40,8 @@ def _find_asset(name: str) -> Path | None:
 
 
 def _logo_path() -> Path | None:
-    return _find_asset("logo")
+    p = _find_asset("logo")
+    return p if p else _find_asset("logo_recibo")
 
 
 def _logo_recibo_path() -> Path | None:
