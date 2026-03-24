@@ -17,8 +17,61 @@ _HEADERS = {
 }
 
 
+# Cache de LID → JID real (evita consultas repetidas)
+_lid_cache: dict[str, str] = {}
+
+
 def _url(path: str) -> str:
     return f"{_BASE}/{path}/{_INSTANCE}"
+
+
+async def resolve_lid(lid_jid: str) -> str:
+    """Resolve um JID @lid para o JID real @s.whatsapp.net via contacts da Evolution API.
+    Retorna o JID real se encontrado, caso contrário retorna o próprio lid_jid.
+    """
+    if lid_jid in _lid_cache:
+        return _lid_cache[lid_jid]
+
+    try:
+        # Tenta buscar o contato pelo ID do LID
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(
+                _url("chat/findContacts"),
+                json={"where": {"id": lid_jid}},
+                headers=_HEADERS,
+            )
+            if r.status_code in (200, 201):
+                contacts = r.json()
+                if isinstance(contacts, list) and contacts:
+                    # Procurar um campo que contenha o número real
+                    for contact in contacts:
+                        # O campo 'owner' ou 'number' pode conter o número real
+                        number = contact.get("number") or contact.get("pushName")
+                        real_jid = contact.get("remoteJid") or contact.get("jid")
+                        
+                        # Se encontrou um JID @s.whatsapp.net diferente do @lid
+                        if real_jid and "@s.whatsapp.net" in real_jid:
+                            _lid_cache[lid_jid] = real_jid
+                            log.warning(f"🔗 LID Resolvido: {lid_jid} → {real_jid}")
+                            return real_jid
+                        
+                        # Se tem um campo 'number' com dígitos
+                        if number and number.replace("+", "").isdigit():
+                            resolved = f"{number.replace('+', '')}@s.whatsapp.net"
+                            _lid_cache[lid_jid] = resolved
+                            log.warning(f"🔗 LID Resolvido via number: {lid_jid} → {resolved}")
+                            return resolved
+                    
+                    # Log do que foi retornado para diagnóstico
+                    log.warning(f"🔍 Contacts para LID {lid_jid}: {contacts[:2]}")
+                else:
+                    log.warning(f"🔍 Nenhum contato encontrado para LID {lid_jid}")
+            else:
+                log.warning(f"🔍 findContacts retornou {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        log.warning(f"🔍 Erro ao resolver LID {lid_jid}: {e}")
+
+    return lid_jid
 
 
 async def send_text(phone: str, text: str) -> dict:

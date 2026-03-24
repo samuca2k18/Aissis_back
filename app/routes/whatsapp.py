@@ -80,11 +80,20 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
         log.warning(f"📬 IGNORADO: impossível extrair dígitos de remote_jid={remote_jid}")
         return {"status": "ignored", "reason": "invalid_phone"}
 
-    log.warning(f"📩 MENSAGEM RECEBIDA [{phone}]: '{text[:80]}'")
+    # ── Resolver LID → número real ────────────────────────────────────────
+    # Se o JID é @lid, precisamos descobrir o número real do contato
+    # para que a Evolution API consiga enviar a resposta
+    from app.services.evolution_api import resolve_lid
+    target = remote_jid
+    if remote_jid.endswith("@lid"):
+        target = await resolve_lid(remote_jid)
+        log.warning(f"🔗 Target resolvido: {remote_jid} → {target}")
+
+    log.warning(f"📩 MENSAGEM RECEBIDA [{phone}]: '{text[:80]}' | target={target}")
 
     # EXECUÇÃO ASSÍNCRONA:
-    # Passamos o 'remote_jid' como o 'target' para garantir entrega ao remetente original
-    # Passamos o 'key' para permitir o "quoted reply" caso seja um LID bloqueado
-    background_tasks.add_task(handle_message, db, phone, text, remote_jid, key)
+    # Passamos o 'target' resolvido para garantir entrega ao remetente original
+    # Passamos o 'key' para permitir o "quoted reply" como último recurso
+    background_tasks.add_task(handle_message, db, phone, text, target, key)
 
     return {"status": "success", "message": "processing"}
