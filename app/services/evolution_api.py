@@ -97,7 +97,7 @@ async def send_text(phone: str, text: str) -> dict:
     if not phone.endswith("@s.whatsapp.net") and not phone.endswith("@g.us") and not phone.endswith("@lid") and "|" not in phone:
         phone = f"{phone}@s.whatsapp.net"
 
-    options = {"delay": 0, "linkPreview": False}
+    options = {"delay": 0, "linkPreview": False, "checkNumber": False}
     if "|" in phone:
         phone, msg_id = phone.split("|", 1)
         options["quoted"] = {
@@ -144,7 +144,7 @@ async def send_media(phone: str, media_bytes: bytes, filename: str, caption: str
     if not mime_type:
         mime_type = "application/octet-stream"
         
-    options = {"delay": 0}
+    options = {"delay": 0, "checkNumber": False}
     if "|" in phone:
         phone, msg_id = phone.split("|", 1)
         options["quoted"] = {
