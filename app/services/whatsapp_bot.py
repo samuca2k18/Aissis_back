@@ -210,10 +210,11 @@ async def _iniciar_orcamento(db: Session, sess: WhatsappSession, phone: str, tar
             f"👋 Olá, *{cliente.nome}*! Encontrei seu cadastro.\n\n"
             f"📦 Agora informe os *itens do orçamento*.\n\n"
             "Envie cada item no formato:\n"
-            "`descricao ; valor`\n\n"
+            "`descricao ; valor` ou `descricao valor`\n\n"
             "Exemplos:\n"
             "`Afinação completa ; 350`\n"
-            "`Regulagem de teclas ; 500`\n\n"
+            "`Regulagem 500`\n\n"
+            "💡 Pode enviar *vários de uma vez* (um por linha)!\n"
             "Quando terminar, envie *OK*."
         )
     else:
@@ -250,12 +251,51 @@ async def _orc_cidade(db: Session, sess: WhatsappSession, phone: str, text: str,
         target,
         "📦 Informe os *itens do orçamento*.\n\n"
         "Envie cada item no formato:\n"
-        "`descricao ; valor`\n\n"
+        "`descricao ; valor` ou `descricao valor`\n\n"
         "Exemplos:\n"
         "`Afinação completa ; 350`\n"
-        "`Regulagem de teclas ; 500`\n\n"
+        "`Regulagem 500`\n\n"
+        "💡 Pode enviar *vários de uma vez* (um por linha)!\n"
         "Quando terminar, envie *OK*."
     )
+
+
+def _parse_item_line(line: str) -> tuple[str, float] | None:
+    """Tenta parsear uma linha como item de orçamento.
+    Suporta dois formatos:
+      1. 'descricao ; valor'   → Afinação completa ; 350
+      2. 'descricao valor'     → Afinação completa 350
+    Retorna (descricao, valor) ou None se não conseguiu parsear.
+    """
+    line = line.strip()
+    if not line:
+        return None
+
+    # Formato 1: com ponto-e-vírgula
+    if ";" in line:
+        parts = line.split(";")
+        if len(parts) == 2:
+            try:
+                desc = parts[0].strip()
+                valor = float(parts[1].strip().replace(",", "."))
+                if desc and valor > 0:
+                    return (desc, valor)
+            except ValueError:
+                pass
+        return None
+
+    # Formato 2: última "palavra" é o valor numérico
+    tokens = line.rsplit(None, 1)  # split da direita, max 1 vez
+    if len(tokens) == 2:
+        try:
+            desc = tokens[0].strip()
+            valor = float(tokens[1].strip().replace(",", "."))
+            if desc and valor > 0:
+                return (desc, valor)
+        except ValueError:
+            pass
+
+    return None
 
 
 async def _orc_itens(db: Session, sess: WhatsappSession, phone: str, text: str, target: str):
@@ -284,38 +324,44 @@ async def _orc_itens(db: Session, sess: WhatsappSession, phone: str, text: str, 
         )
         return
 
-    # parsear item
-    parts = text.split(";")
-    if len(parts) != 2:
+    # ── Parsear itens (suporta múltiplas linhas numa só mensagem) ──────────
+    linhas = text.strip().split("\n")
+    adicionados = []
+    erros = []
+
+    for linha in linhas:
+        resultado = _parse_item_line(linha)
+        if resultado:
+            desc, valor = resultado
+            itens.append({"descricao": desc, "valor": valor})
+            adicionados.append(f"  ✅ {desc} — {_fmt_brl(valor)}")
+        elif linha.strip():
+            erros.append(f"  ⚠️ `{linha.strip()}`")
+
+    if not adicionados and erros:
         await evolution_api.send_text(
             target,
-            "⚠️ Formato inválido. Use:\n`descricao ; valor`\n\n"
-            "✅ Exemplo correto: `Afinação completa ; 350`"
-        )
-        return
-    try:
-        desc = parts[0].strip()
-        valor = float(parts[1].strip().replace(",", "."))
-        if valor <= 0:
-            raise ValueError
-    except ValueError:
-        await evolution_api.send_text(
-            target,
-            "⚠️ Valor inválido. Use um número positivo.\n"
-            "✅ Exemplo: `Afinação ; 350`"
+            "⚠️ Não consegui ler os itens. Use um dos formatos:\n\n"
+            "`descricao ; valor`\n"
+            "`descricao valor`\n\n"
+            "Exemplos:\n"
+            "`Afinação completa ; 350`\n"
+            "`Regulagem 500`\n\n"
+            "Pode enviar *vários de uma vez* (um por linha)!"
         )
         return
 
-    itens.append({"descricao": desc, "valor": valor})
     d["itens"] = itens
     _save(db, sess, "orc_itens", d)
     total_parcial = sum(i["valor"] for i in itens)
-    await evolution_api.send_text(
-        target,
-        f"✅ *{desc}* — {_fmt_brl(valor)} adicionado!\n"
-        f"💰 Subtotal: {_fmt_brl(total_parcial)}\n\n"
-        f"Envie mais itens ou *OK* para continuar."
-    )
+
+    msg = "\n".join(adicionados)
+    if erros:
+        msg += "\n\n⚠️ Linhas não reconhecidas:\n" + "\n".join(erros)
+    msg += f"\n\n💰 *Subtotal: {_fmt_brl(total_parcial)}*"
+    msg += "\n\nEnvie mais itens ou *OK* para continuar."
+
+    await evolution_api.send_text(target, msg)
 
 
 async def _orc_pagamento(db: Session, sess: WhatsappSession, phone: str, text: str, target: str):

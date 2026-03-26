@@ -1,11 +1,11 @@
 """Rota webhook para receber mensagens do WhatsApp via Evolution API."""
 
+import asyncio
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Request
 
-from app.database import get_db
+from app.database import SessionLocal
 from app.services.whatsapp_bot import handle_message
 
 log = logging.getLogger(__name__)
@@ -13,8 +13,19 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
 
 
+async def _run_handler_async(phone: str, text: str, target: str, key: dict | None):
+    """Wrapper que cria sua própria sessão DB para o processamento assíncrono."""
+    db = SessionLocal()
+    try:
+        await handle_message(db, phone, text, target, key)
+    except Exception as e:
+        log.exception(f"❌ ERRO no handler assíncrono (handle_message): {e}")
+    finally:
+        db.close()
+
+
 @router.post("/webhook")
-async def webhook(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def webhook(request: Request):
     """
     Endpoint que a Evolution API chama quando uma mensagem é recebida.
     """
@@ -105,9 +116,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks, db: Sessi
 
     log.warning(f"📩 MENSAGEM RECEBIDA [{phone}]: '{text[:80]}' | target={target}")
 
-    # EXECUÇÃO ASSÍNCRONA:
-    # Passamos o 'target' resolvido para garantir entrega ao remetente original
-    # Passamos o 'key' para permitir o "quoted reply" como último recurso
-    background_tasks.add_task(handle_message, db, phone, text, target, key)
+    # EXECUÇÃO ASSÍNCRONA: cria task independente com sessão DB própria
+    asyncio.create_task(_run_handler_async(phone, text, target, key))
 
     return {"status": "success", "message": "processing"}
