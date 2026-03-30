@@ -19,9 +19,9 @@ _HEADERS = {
 
 
 # Cache de LID → JID real (evita consultas repetidas)
-# Mapeamentos conhecidos podem ser adicionados aqui manualmente
 _lid_cache: dict[str, str] = {
     "244770354012263@lid": "5585996224425@s.whatsapp.net",  # Maressa
+    "45032899928207@lid": "558596224480@s.whatsapp.net",    # Assis Junior
 }
 
 
