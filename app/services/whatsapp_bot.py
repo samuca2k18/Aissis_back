@@ -124,19 +124,23 @@ async def handle_message(db: Session, phone: str, text: str, recipient_jid: str 
         if msg_id:
             target = f"{target}|{msg_id}"
 
-    # ── MODO SILENCIOSO: bot está dormindo, ignorar tudo exceto "menu" ───────
+    # ── MODO SILENCIOSO: bot está dormindo ───────────────────────────────────
     if sess.state == "sleeping":
-        if text.lower() == "menu":
+        t = text.lower().strip()
+        import re
+        words = set(re.findall(r'\w+', t))
+        kws = {"menu", "oi", "ola", "olá", "bom", "boa", "orçamento", "orcamento", "agendar", "orcar", "orçar"}
+        if words.intersection(kws):
             _save(db, sess, "menu", {})
             await evolution_api.send_buttons(target, MENU_TEXT, MENU_BUTTONS)
-        # Qualquer outra mensagem: ignorar completamente (sem resposta)
+        # Qualquer outra mensagem obscura: ignorar completamente (sem resposta)
         return
 
     # ── Timeout de sessão: adormecer silenciosamente ──────────────────────
     if sess.state != "menu" and _is_timed_out(sess):
         _save(db, sess, "sleeping", {})
-        # Não damos 'return' para que a mensagem atual (ex: 'menu') possa acordá-lo
-        sess.state = "sleeping"
+        # Silenciosamente dorme, exigindo "oi" para acordar de novo
+        return
 
     # ── Comando global: "0" ou "sair" adormece o bot silenciosamente ───────
     if text in ("0", "sair", "Sair", "SAIR"):
@@ -182,7 +186,11 @@ async def _handle_menu(db: Session, sess: WhatsappSession, phone: str, text: str
     elif text == "3":
         await _handle_agenda_query(db, sess, phone, target)
     else:
-        await evolution_api.send_buttons(target, MENU_TEXT, MENU_BUTTONS)
+        # Aviso curto em vez de repetir todos os botões e texto toda vez
+        await evolution_api.send_text(
+            target,
+            "⚠️ Opção não reconhecida.\nPor favor, **digite 1, 2 ou 3** (ou escolha no botão acima)."
+        )
 
 
 # ── Melhoria 5: Iniciar orçamento reconhecendo cliente existente ─────────────
