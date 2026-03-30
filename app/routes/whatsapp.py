@@ -24,6 +24,27 @@ async def _run_handler_async(phone: str, text: str, target: str, key: dict | Non
         db.close()
 
 
+class SimpleMsgCache:
+    """Cache em memória para evitar processamento duplicado da mesma mensagem."""
+    def __init__(self, max_size=1000):
+        self._set = set()
+        self._list = []
+        self._max = max_size
+
+    def is_new(self, msg_id: str) -> bool:
+        if msg_id in self._set:
+            return False
+        self._set.add(msg_id)
+        self._list.append(msg_id)
+        if len(self._list) > self._max:
+            old = self._list.pop(0)
+            self._set.discard(old)
+        return True
+
+
+_message_cache = SimpleMsgCache()
+
+
 @router.post("/webhook")
 async def webhook(request: Request):
     """
@@ -115,6 +136,12 @@ async def webhook(request: Request):
             phone = _normalize_br_phone("".join(re.findall(r"\d+", target.split("@")[0])))
 
     log.warning(f"📩 MENSAGEM RECEBIDA [{phone}]: '{text[:80]}' | target={target}")
+
+    # Evitar o problema de mensagens duplicadas disparadas pela Evolution API
+    msg_id = key.get("id")
+    if msg_id and not _message_cache.is_new(msg_id):
+        log.warning(f"🚫 IGNORADO: Mensagem duplicada interceptada (ID já processado: {msg_id})")
+        return {"status": "ignored", "reason": "duplicated_message"}
 
     # EXECUÇÃO ASSÍNCRONA: cria task independente com sessão DB própria
     asyncio.create_task(_run_handler_async(phone, text, target, key))
