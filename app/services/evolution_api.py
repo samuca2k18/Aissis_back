@@ -2,7 +2,6 @@
 
 import logging
 import mimetypes
-from pathlib import Path
 
 import httpx
 
@@ -29,6 +28,23 @@ def _url(path: str) -> str:
     return f"{_BASE}/{path}/{_INSTANCE}"
 
 
+def _timeout(seconds: float | None = None) -> httpx.Timeout:
+    return httpx.Timeout(seconds if seconds is not None else settings.EVOLUTION_API_TIMEOUT_SECONDS)
+
+
+async def check_evolution_health() -> bool:
+    """Verifica conectividade básica com a Evolution API."""
+    if not _BASE:
+        return False
+
+    try:
+        async with httpx.AsyncClient(timeout=_timeout(3.0)) as client:
+            response = await client.get(f"{_BASE}/")
+        return response.status_code < 500
+    except Exception:
+        return False
+
+
 async def resolve_lid(lid_jid: str) -> str:
     """Resolve um JID @lid para o JID real @s.whatsapp.net.
     Tenta múltiplas estratégias: findChats, findContacts.
@@ -38,7 +54,7 @@ async def resolve_lid(lid_jid: str) -> str:
         return _lid_cache[lid_jid]
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=_timeout()) as client:
             # Estratégia 1: findChats — busca o chat pelo remoteJid do LID
             try:
                 r = await client.post(
@@ -97,7 +113,7 @@ async def send_text(phone: str, text: str) -> dict:
     if not phone.endswith("@s.whatsapp.net") and not phone.endswith("@g.us") and not phone.endswith("@lid") and "|" not in phone:
         phone = f"{phone}@s.whatsapp.net"
 
-    options = {"delay": 0, "linkPreview": False, "checkNumber": False}
+    options: dict[str, object] = {"delay": 0, "linkPreview": False, "checkNumber": False}
     if "|" in phone:
         phone, msg_id = phone.split("|", 1)
         options["quoted"] = {
@@ -113,7 +129,7 @@ async def send_text(phone: str, text: str) -> dict:
         "text": text,
         "options": options
     }
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=_timeout(30.0)) as client:
         try:
             r = await client.post(_url("message/sendText"), json=payload, headers=_HEADERS)
             if r.status_code != 201 and r.status_code != 200:
@@ -143,8 +159,8 @@ async def send_media(phone: str, media_bytes: bytes, filename: str, caption: str
     mime_type, _ = mimetypes.guess_type(filename)
     if not mime_type:
         mime_type = "application/octet-stream"
-        
-    options = {"delay": 0, "checkNumber": False}
+
+    options: dict[str, object] = {"delay": 0, "checkNumber": False}
     if "|" in phone:
         phone, msg_id = phone.split("|", 1)
         options["quoted"] = {
@@ -164,7 +180,7 @@ async def send_media(phone: str, media_bytes: bytes, filename: str, caption: str
         "caption": caption,
         "options": options
     }
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=_timeout(60.0)) as client:
         try:
             r = await client.post(_url("message/sendMedia"), json=payload, headers=_HEADERS)
             if r.status_code != 201 and r.status_code != 200:
@@ -189,7 +205,7 @@ async def send_buttons(phone: str, text: str, buttons: list[dict], title: str = 
     """
     if "@" not in phone and "|" not in phone:
         phone = f"{phone}@s.whatsapp.net"
-        
+
     # Extrai msg_id se existir, para o fallback
     msg_id = None
     if "|" in phone:
@@ -214,7 +230,7 @@ async def send_buttons(phone: str, text: str, buttons: list[dict], title: str = 
     }
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=_timeout(30.0)) as client:
             r = await client.post(_url("message/sendButtons"), json=payload, headers=_HEADERS)
             if r.status_code in (200, 201):
                 return r.json()
@@ -231,7 +247,7 @@ async def send_buttons(phone: str, text: str, buttons: list[dict], title: str = 
     fallback_text = f"{text}\n\n{opcoes}"
     if footer:
         fallback_text += f"\n\n_{footer}_"
-        
+
     # Re-embutimos o msg_id para garantir que o send_text consiga fazer o quoted reply
     fallback_phone = f"{phone}|{msg_id}" if msg_id else phone
     return await send_text(fallback_phone, fallback_text)

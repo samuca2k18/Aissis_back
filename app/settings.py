@@ -1,3 +1,5 @@
+from typing import Final
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,6 +8,12 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str
     APP_NAME: str = "IAssis Pianos"
+    APP_ENV: str = "development"
+    APP_VERSION: str = "1.0.0"
+    LOG_LEVEL: str = "INFO"
+    DATABASE_STATEMENT_TIMEOUT_MS: int = 30000
+    AUTO_CREATE_TABLES: bool = False
+    SCHEDULER_ENABLED: bool = True
 
     COMPANY_NAME: str = "JR NASCIMENTOS VENDA E CONSERTO DE INSTRUMENTOS MUSICAIS LTDA."
     COMPANY_CNPJ: str = "09.481.301/0001-59"
@@ -22,9 +30,27 @@ class Settings(BaseSettings):
     EVOLUTION_API_URL: str = ""
     EVOLUTION_API_KEY: str = ""
     EVOLUTION_API_INSTANCE: str = ""
+    EVOLUTION_API_TIMEOUT_SECONDS: float = 10.0
+    WHATSAPP_WEBHOOK_TOKEN: str = ""
 
     # Telefone que recebe o resumo diário às 7h (formato: 5585999999999)
     WHATSAPP_NOTIFY_PHONE: str = ""
+    BACKEND_API_KEY: str = ""
+    CORS_ALLOW_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    CORS_ALLOW_CREDENTIALS: bool = False
+
+    _ORIGINS_SEPARATOR: Final[str] = ","
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        origins = [origin.strip() for origin in self.CORS_ALLOW_ORIGINS.split(self._ORIGINS_SEPARATOR) if origin.strip()]
+        if not origins:
+            return ["http://localhost:5173"]
+        return origins
+
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV.lower() in {"prod", "production"}
 
 
 settings = Settings()

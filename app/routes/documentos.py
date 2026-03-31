@@ -4,9 +4,10 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
+from ..security import require_api_key
 from ..services import documento as documento_service
 
-router = APIRouter(prefix="/documentos", tags=["documentos"])
+router = APIRouter(prefix="/documentos", tags=["documentos"], dependencies=[Depends(require_api_key)])
 
 
 # ── Orçamento ────────────────────────────────────────────────────────────────

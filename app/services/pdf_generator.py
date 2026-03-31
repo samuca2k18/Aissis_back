@@ -4,11 +4,11 @@ Documentos: Orçamento, Contrato de Locação e Recibo.
 """
 
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
@@ -176,7 +176,7 @@ def _company_header_recibo(s: dict) -> list:
 _company_header_text = _company_header_full
 
 
-def _assinatura_block(s: dict, nome: str = None) -> list:
+def _assinatura_block(s: dict, nome: str | None = None) -> list:
     """Bloco de assinatura com imagem (se disponível) + linha + nome."""
     elems = []
     elems.append(Spacer(1, 14 * mm))
@@ -208,7 +208,7 @@ def gerar_orcamento_pdf(
     observacoes: str | None = None,
 ) -> bytes:
     if data_emissao is None:
-        data_emissao = datetime.now(timezone.utc)
+        data_emissao = datetime.now(UTC)
     data_str = _data_pt(data_emissao)
 
     buffer = io.BytesIO()
@@ -293,7 +293,7 @@ def gerar_recibo_pdf(
     logo + endereço + fone → R E C I B O → caixa valor (direita) → texto descritivo → assinatura
     """
     if data_recibo is None:
-        data_recibo = datetime.now(timezone.utc)
+        data_recibo = datetime.now(UTC)
     data_str = _data_pt(data_recibo)
     valor_extenso = _valor_por_extenso_simples(valor).upper()
 
@@ -519,7 +519,7 @@ def texto_orcamento(
     data_emissao: datetime | None = None,
 ) -> str:
     if data_emissao is None:
-        data_emissao = datetime.now(timezone.utc)
+        data_emissao = datetime.now(UTC)
     linhas = [
         settings.COMPANY_NAME,
         f"CNPJ: {settings.COMPANY_CNPJ}",
@@ -557,7 +557,7 @@ def texto_recibo(
     data_recibo: datetime | None = None,
 ) -> str:
     if data_recibo is None:
-        data_recibo = datetime.now(timezone.utc)
+        data_recibo = datetime.now(UTC)
     valor_extenso = _valor_por_extenso_simples(valor).upper()
     return (
         f"RECIBO – ASSIS PIANOS\n\n"

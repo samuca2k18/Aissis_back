@@ -153,3 +153,25 @@ O bot opera via **Evolution API v2** com um menu interativo:
 PUT /negocios/{id}/status
 { "status": "fechado" }
 ```
+
+---
+
+## Hardening (Mar/2026)
+
+- CORS agora é controlado por `CORS_ALLOW_ORIGINS` e `CORS_ALLOW_CREDENTIALS`.
+- Rotas de negócio aceitam proteção opcional por `X-API-Key` quando `BACKEND_API_KEY` é definido.
+- Webhook do WhatsApp aceita proteção opcional por `X-Webhook-Token` quando `WHATSAPP_WEBHOOK_TOKEN` é definido.
+- `AUTO_CREATE_TABLES` foi deixado opcional para evitar criação automática de schema em produção.
+- Endpoint `GET /health` agora inclui check de banco e conectividade com Evolution API.
+
+### Migrações
+
+Para produção, mantenha `AUTO_CREATE_TABLES=false` e use migrações versionadas com Alembic.
+
+```bash
+# aplicar migrações
+alembic upgrade head
+
+# criar nova migração
+alembic revision -m "descricao da alteracao"
+```

@@ -12,7 +12,7 @@ Melhorias implementadas:
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -69,7 +69,7 @@ def _save(db: Session, sess: WhatsappSession, state: str, data: dict | None = No
         sess.data_json = json.dumps(data, ensure_ascii=False)
     # Registrar timestamp da última interação
     extra = json.loads(sess.data_json) if sess.data_json else {}
-    extra["_last_active"] = datetime.now(timezone.utc).isoformat()
+    extra["_last_active"] = datetime.now(UTC).isoformat()
     sess.data_json = json.dumps(extra, ensure_ascii=False)
     db.commit()
 
@@ -90,8 +90,8 @@ def _is_timed_out(sess: WhatsappSession) -> bool:
     try:
         last_dt = datetime.fromisoformat(last)
         if last_dt.tzinfo is None:
-            last_dt = last_dt.replace(tzinfo=timezone.utc)
-        delta = datetime.now(timezone.utc) - last_dt
+            last_dt = last_dt.replace(tzinfo=UTC)
+        delta = datetime.now(UTC) - last_dt
         return delta > timedelta(minutes=SESSION_TIMEOUT_MINUTES)
     except Exception:
         return False
@@ -104,7 +104,13 @@ def _fmt_brl(valor: float) -> str:
 
 # ─── handler principal ──────────────────────────────────────────────────────
 
-async def handle_message(db: Session, phone: str, text: str, recipient_jid: str = None, message_key: dict = None) -> None:
+async def handle_message(
+    db: Session,
+    phone: str,
+    text: str,
+    recipient_jid: str | None = None,
+    message_key: dict | None = None,
+) -> None:
     """
     Processa uma mensagem recebida e responde via Evolution API.
     phone: apenas os dígitos (ex: 558599... para CRM)
@@ -113,7 +119,7 @@ async def handle_message(db: Session, phone: str, text: str, recipient_jid: str 
     """
     text = text.strip()
     sess = _get_or_create_session(db, phone)
-    
+
     # Se não informar JID completo, tenta montar o padrão
     target = recipient_jid or f"{phone}@s.whatsapp.net"
 
@@ -487,7 +493,7 @@ async def _orc_confirmar(db: Session, sess: WhatsappSession, phone: str, text: s
             f"O PDF foi enviado acima. ☝️\n\n" + MENU_TEXT_FALLBACK
         )
 
-    except Exception as e:
+    except Exception:
         log.exception("Erro ao gerar orçamento via WhatsApp")
         await evolution_api.send_text(
             target,
@@ -677,7 +683,7 @@ async def _handle_agenda_query(db: Session, sess: WhatsappSession, phone: str, t
 
 
 async def _agenda_periodo(db: Session, sess: WhatsappSession, phone: str, text: str, target: str):
-    from sqlalchemy import cast, Date
+    from sqlalchemy import Date, cast
 
     hoje = datetime.now(timezone(timedelta(hours=-3))).date()
     t = text.strip().lower()
@@ -696,7 +702,7 @@ async def _agenda_periodo(db: Session, sess: WhatsappSession, phone: str, text: 
     elif t in ("3", "semana", "7 dias", "próximos 7 dias"):
         data_inicio = hoje
         data_fim = hoje + timedelta(days=6)
-        label = f"próximos 7 dias"
+        label = "próximos 7 dias"
     else:
         # Tentar parsear DD/MM ou DD/MM/AAAA
         for fmt in ("%d/%m", "%d/%m/%Y"):

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import cast
 
 from sqlalchemy import func
@@ -25,7 +25,7 @@ def obter_dashboard(db: Session) -> DashboardOut:
     rows_origem = db.query(Lead.origem, func.count(Lead.id)).filter(Lead.origem.isnot(None)).group_by(Lead.origem).all()
     leads_por_origem = dict(cast(list[tuple[str, int]], rows_origem))
 
-    agora = datetime.now(timezone.utc)
+    agora = datetime.now(UTC)
     proximos_eventos = (
         db.query(func.count(Agenda.id)).filter(Agenda.concluido.is_(False), Agenda.data_hora >= agora).scalar() or 0
     )

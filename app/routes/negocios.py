@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
+from ..security import require_api_key
 from ..services import negocio as negocio_service
 
-router = APIRouter(prefix="/negocios", tags=["negócios"])
+router = APIRouter(prefix="/negocios", tags=["negocios"], dependencies=[Depends(require_api_key)])
 
 
 @router.post("", response_model=schemas.NegocioOut, status_code=201)

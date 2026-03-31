@@ -5,11 +5,11 @@ Usa APScheduler para rodar um job cron.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import cast, Date
+from sqlalchemy import Date, cast
 
 from app.database import SessionLocal
 from app.models.agenda import Agenda
@@ -30,7 +30,7 @@ async def _enviar_resumo_diario():
 
     db = SessionLocal()
     try:
-        hoje = datetime.now(timezone.utc).date()
+        hoje = datetime.now(UTC).date()
         eventos = (
             db.query(Agenda)
             .filter(

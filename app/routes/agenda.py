@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
+from ..security import require_api_key
 from ..services import agenda as agenda_service
 
-router = APIRouter(prefix="/agenda", tags=["agenda"])
+router = APIRouter(prefix="/agenda", tags=["agenda"], dependencies=[Depends(require_api_key)])
 
 
 @router.post("", response_model=schemas.AgendaOut, status_code=201)
