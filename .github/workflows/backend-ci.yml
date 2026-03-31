@@ -27,23 +27,52 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Detect backend directory
+        id: backend_dir
+        shell: bash
         run: |
-          if [ -d assis_back ]; then cd assis_back; elif [ -d iassis-backend ]; then cd iassis-backend; fi
+          set -euo pipefail
+          if [ -d "./app" ]; then
+            DIR="."
+          else
+            CANDIDATE="$(find . -maxdepth 3 -type d -name app | head -n 1 | sed 's#/app$##')"
+            if [ -z "${CANDIDATE:-}" ]; then
+              echo "Could not find backend directory containing app/."
+              exit 1
+            fi
+            DIR="$CANDIDATE"
+          fi
+          echo "backend_dir=$DIR" >> "$GITHUB_OUTPUT"
+          echo "Detected backend directory: $DIR"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ steps.backend_dir.outputs.backend_dir }}"
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
       - name: Ruff
+        shell: bash
         run: |
-          if [ -d assis_back ]; then cd assis_back; elif [ -d iassis-backend ]; then cd iassis-backend; fi
+          set -euo pipefail
+          cd "${{ steps.backend_dir.outputs.backend_dir }}"
+          export PYTHONPATH="$PWD:$PYTHONPATH"
           ruff check app tests
 
       - name: Mypy
+        shell: bash
         run: |
-          if [ -d assis_back ]; then cd assis_back; elif [ -d iassis-backend ]; then cd iassis-backend; fi
+          set -euo pipefail
+          cd "${{ steps.backend_dir.outputs.backend_dir }}"
+          export PYTHONPATH="$PWD:$PYTHONPATH"
           mypy app
 
       - name: Pytest
+        shell: bash
         run: |
-          if [ -d assis_back ]; then cd assis_back; elif [ -d iassis-backend ]; then cd iassis-backend; fi
+          set -euo pipefail
+          cd "${{ steps.backend_dir.outputs.backend_dir }}"
+          export PYTHONPATH="$PWD:$PYTHONPATH"
           pytest -q
