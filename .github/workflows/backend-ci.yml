@@ -17,6 +17,9 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    env:
+      APP_ENV: test
+      DATABASE_URL: sqlite:///./ci.db
 
     steps:
       - name: Checkout
