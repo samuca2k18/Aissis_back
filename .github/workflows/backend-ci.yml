@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "${{ steps.backend_dir.outputs.backend_dir }}"
-          export PYTHONPATH="$PWD:$PYTHONPATH"
+          export PYTHONPATH="$PWD:${PYTHONPATH:-}"
           ruff check app tests
 
       - name: Mypy
@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "${{ steps.backend_dir.outputs.backend_dir }}"
-          export PYTHONPATH="$PWD:$PYTHONPATH"
+          export PYTHONPATH="$PWD:${PYTHONPATH:-}"
           mypy app
 
       - name: Pytest
@@ -74,5 +74,5 @@ jobs:
         run: |
           set -euo pipefail
           cd "${{ steps.backend_dir.outputs.backend_dir }}"
-          export PYTHONPATH="$PWD:$PYTHONPATH"
+          export PYTHONPATH="$PWD:${PYTHONPATH:-}"
           pytest -q
