@@ -3,13 +3,13 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
-from ..security import require_api_key
+from ..security import require_permission
 from ..services import negocio as negocio_service
 
-router = APIRouter(prefix="/negocios", tags=["negocios"], dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/negocios", tags=["negocios"], dependencies=[Depends(require_permission("negocios", "read"))])
 
 
-@router.post("", response_model=schemas.NegocioOut, status_code=201)
+@router.post("", response_model=schemas.NegocioOut, status_code=201, dependencies=[Depends(require_permission("negocios", "write"))])
 def criar_negocio(payload: schemas.NegocioCreate, db: Session = Depends(get_db)):
     return negocio_service.criar_negocio(db, payload)
 
@@ -29,11 +29,11 @@ def buscar_negocio(negocio_id: int, db: Session = Depends(get_db)):
     return negocio_service.buscar_negocio_por_id(db, negocio_id)
 
 
-@router.put("/{negocio_id}/status", response_model=schemas.NegocioOut)
+@router.put("/{negocio_id}/status", response_model=schemas.NegocioOut, dependencies=[Depends(require_permission("negocios", "write"))])
 def atualizar_status(negocio_id: int, payload: schemas.NegocioUpdateStatus, db: Session = Depends(get_db)):
     return negocio_service.atualizar_status(db, negocio_id, payload)
 
 
-@router.delete("/{negocio_id}", status_code=204)
+@router.delete("/{negocio_id}", status_code=204, dependencies=[Depends(require_permission("negocios", "write"))])
 def deletar_negocio(negocio_id: int, db: Session = Depends(get_db)):
     negocio_service.deletar_negocio(db, negocio_id)

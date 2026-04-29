@@ -1,4 +1,6 @@
 from .agenda import router as agenda
+from .auditoria import router as auditoria
+from .auth import router as auth
 from .campanhas import router as campanhas
 from .clientes import router as clientes
 from .dashboard import router as dashboard
@@ -7,4 +9,15 @@ from .leads import router as leads
 from .negocios import router as negocios
 from .whatsapp import router as whatsapp
 
-__all__ = ["clientes", "leads", "negocios", "documentos", "campanhas", "agenda", "dashboard", "whatsapp"]
+__all__ = [
+    "auth",
+    "clientes",
+    "leads",
+    "negocios",
+    "documentos",
+    "campanhas",
+    "agenda",
+    "dashboard",
+    "auditoria",
+    "whatsapp",
+]

@@ -175,3 +175,44 @@ alembic upgrade head
 # criar nova migração
 alembic revision -m "descricao da alteracao"
 ```
+
+---
+
+## Sprint 1 (Autenticação, Perfis e Auditoria)
+
+### Login e usuários
+
+- `POST /auth/login` gera token de acesso.
+- `POST /auth/bootstrap-admin` cria o primeiro admin quando ainda não existe usuário.
+- `GET /auth/me` retorna usuário autenticado.
+- `GET /auth/users` (admin) lista usuários.
+- `POST /auth/users` (admin) cria usuário.
+- `PATCH /auth/users/{id}/status` (admin) ativa/desativa usuário.
+
+### Perfis e permissões
+
+Perfis suportados:
+- `admin`
+- `comercial`
+- `atendimento`
+
+Permissões são aplicadas por módulo (`clientes`, `leads`, `negocios`, `documentos`, `campanhas`, `agenda`, `dashboard`).
+
+Use header `Authorization: Bearer <token>` nas rotas protegidas.
+
+### Auditoria básica
+
+- Escritas (`POST/PUT/PATCH/DELETE`) são registradas em `audit_logs`.
+- Campos principais: usuário, role, ação, rota, status, request_id, IP e user-agent.
+- Consulta disponível em `GET /auditoria` (somente admin).
+
+### Variáveis para ativar em produção
+
+| Variável | Função |
+|---|---|
+| `AUTH_REQUIRED` | Exige autenticação nas rotas protegidas |
+| `AUTH_SECRET_KEY` | Chave de assinatura dos tokens |
+| `INITIAL_ADMIN_EMAIL` | E-mail do admin inicial |
+| `INITIAL_ADMIN_PASSWORD` | Senha do admin inicial |
+| `AUTH_BOOTSTRAP_ADMIN` | Cria admin automaticamente na inicialização |
+| `AUDIT_LOG_ENABLED` | Liga/desliga trilha de auditoria |

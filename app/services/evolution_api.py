@@ -1,5 +1,6 @@
 """Cliente HTTP para a Evolution API (envio de mensagens e mídia via WhatsApp)."""
 
+import json
 import logging
 import mimetypes
 
@@ -18,10 +19,28 @@ _HEADERS = {
 
 
 # Cache de LID → JID real (evita consultas repetidas)
-_lid_cache: dict[str, str] = {
-    "244770354012263@lid": "5585996224425@s.whatsapp.net",  # Maressa
-    "45032899928207@lid": "558596224480@s.whatsapp.net",    # Assis Junior
-}
+def _load_lid_map() -> dict[str, str]:
+    raw = settings.WHATSAPP_LID_MAP_JSON.strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        log.warning("WHATSAPP_LID_MAP_JSON inválido. Ignorando mapa estático de LID.")
+        return {}
+
+    if not isinstance(parsed, dict):
+        log.warning("WHATSAPP_LID_MAP_JSON deve ser um objeto JSON. Ignorando valor informado.")
+        return {}
+
+    normalized: dict[str, str] = {}
+    for lid, jid in parsed.items():
+        if isinstance(lid, str) and isinstance(jid, str) and lid.endswith("@lid") and "@" in jid:
+            normalized[lid] = jid
+    return normalized
+
+
+_lid_cache: dict[str, str] = _load_lid_map()
 
 
 def _url(path: str) -> str:

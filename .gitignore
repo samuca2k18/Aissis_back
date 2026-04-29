@@ -1,23 +1,34 @@
-# Ambiente virtual Python
+# Python virtual environments
 .venv/
 venv/
 env/
 
-# Variáveis de ambiente (NUNCA commitar — contém senha do banco!)
+# Environment files (never commit secrets)
 .env
+.env.*
+!.env.example
 
-# Bytecode
+# Python bytecode
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 
-# Distribuição / build
+# Tool/test caches
+.pytest_cache/
+pytest-cache-files-*/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build artifacts
 dist/
 build/
 *.egg-info/
 
-# Banco de dados local (se usar SQLite em dev)
+# Local databases
 *.db
 *.sqlite
 
@@ -29,6 +40,6 @@ build/
 .vscode/
 *.code-workspace
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db

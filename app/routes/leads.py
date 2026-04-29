@@ -3,13 +3,13 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
-from ..security import require_api_key
+from ..security import require_permission
 from ..services import lead as lead_service
 
-router = APIRouter(prefix="/leads", tags=["leads"], dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/leads", tags=["leads"], dependencies=[Depends(require_permission("leads", "read"))])
 
 
-@router.post("", response_model=schemas.LeadOut, status_code=201)
+@router.post("", response_model=schemas.LeadOut, status_code=201, dependencies=[Depends(require_permission("leads", "write"))])
 def criar_lead(payload: schemas.LeadCreate, db: Session = Depends(get_db)):
     return lead_service.criar_lead(db, payload)
 
@@ -23,12 +23,12 @@ def listar_leads(
     return lead_service.listar_leads(db, status, temperatura)
 
 
-@router.put("/{lead_id}/status", response_model=schemas.LeadOut)
+@router.put("/{lead_id}/status", response_model=schemas.LeadOut, dependencies=[Depends(require_permission("leads", "write"))])
 def atualizar_status(lead_id: int, payload: schemas.LeadUpdateStatus, db: Session = Depends(get_db)):
     return lead_service.atualizar_status(db, lead_id, payload)
 
 
-@router.put("/{lead_id}/converter", response_model=schemas.ClienteOut)
+@router.put("/{lead_id}/converter", response_model=schemas.ClienteOut, dependencies=[Depends(require_permission("leads", "write"))])
 def converter_lead_em_cliente(
     lead_id: int,
     payload: schemas.ClienteCreate,
@@ -37,6 +37,6 @@ def converter_lead_em_cliente(
     return lead_service.converter_lead_em_cliente(db, lead_id, payload)
 
 
-@router.delete("/{lead_id}", status_code=204)
+@router.delete("/{lead_id}", status_code=204, dependencies=[Depends(require_permission("leads", "write"))])
 def deletar_lead(lead_id: int, db: Session = Depends(get_db)):
     lead_service.deletar_lead(db, lead_id)

@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     DATABASE_STATEMENT_TIMEOUT_MS: int = 30000
     AUTO_CREATE_TABLES: bool = False
     SCHEDULER_ENABLED: bool = True
+    AUDIT_LOG_ENABLED: bool = True
 
     COMPANY_NAME: str = "JR NASCIMENTOS VENDA E CONSERTO DE INSTRUMENTOS MUSICAIS LTDA."
     COMPANY_CNPJ: str = "09.481.301/0001-59"
@@ -32,12 +33,22 @@ class Settings(BaseSettings):
     EVOLUTION_API_INSTANCE: str = ""
     EVOLUTION_API_TIMEOUT_SECONDS: float = 10.0
     WHATSAPP_WEBHOOK_TOKEN: str = ""
+    WHATSAPP_LID_MAP_JSON: str = ""
 
     # Telefone que recebe o resumo diário às 7h (formato: 5585999999999)
     WHATSAPP_NOTIFY_PHONE: str = ""
     BACKEND_API_KEY: str = ""
     CORS_ALLOW_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
     CORS_ALLOW_CREDENTIALS: bool = False
+    AUTH_REQUIRED: bool = True
+    AUTH_SECRET_KEY: str = "change-me-in-production"
+    AUTH_BOOTSTRAP_TOKEN: str = ""
+    AUTH_TOKEN_EXPIRE_MINUTES: int = 480
+    AUTH_PASSWORD_ITERATIONS: int = 390000
+    AUTH_BOOTSTRAP_ADMIN: bool = True
+    INITIAL_ADMIN_NAME: str = "Administrador"
+    INITIAL_ADMIN_EMAIL: str = ""
+    INITIAL_ADMIN_PASSWORD: str = ""
 
     _ORIGINS_SEPARATOR: Final[str] = ","
 

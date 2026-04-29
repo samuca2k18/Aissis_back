@@ -102,6 +102,32 @@ def _fmt_brl(valor: float) -> str:
     return "R$ " + s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def _digits_only(value: str | None) -> str:
+    if not value:
+        return ""
+    return "".join(ch for ch in value if ch.isdigit())
+
+
+def _phone_variants(phone: str) -> set[str]:
+    digits = _digits_only(phone)
+    if not digits:
+        return set()
+    variants = {digits}
+    if len(digits) >= 12 and digits.startswith("55"):
+        variants.add(digits[2:])  # sem DDI
+    if len(digits) in {10, 11} and not digits.startswith("55"):
+        variants.add("55" + digits)  # com DDI
+    if len(digits) == 12 and digits.startswith("55"):
+        variants.add(digits[:4] + "9" + digits[4:])
+    if len(digits) == 13 and digits.startswith("55") and digits[4] == "9":
+        variants.add(digits[:4] + digits[5:])
+    if len(digits) == 10:
+        variants.add(digits[:2] + "9" + digits[2:])
+    if len(digits) == 11 and digits[2] == "9":
+        variants.add(digits[:2] + digits[3:])
+    return variants
+
+
 # ─── handler principal ──────────────────────────────────────────────────────
 
 async def handle_message(
@@ -135,7 +161,7 @@ async def handle_message(
         t = text.lower().strip()
         import re
         words = set(re.findall(r'\w+', t))
-        kws = {"menu", "oi", "ola", "olá", "bom", "boa", "orçamento", "orcamento", "agendar", "orcar", "orçar"}
+        kws = {"menu", "iniciar", "inicio", "start", "ajuda"}
         if words.intersection(kws):
             _save(db, sess, "menu", {})
             await evolution_api.send_buttons(target, MENU_TEXT, MENU_BUTTONS)
@@ -143,9 +169,9 @@ async def handle_message(
         return
 
     # ── Timeout de sessão: adormecer silenciosamente ──────────────────────
-    if sess.state != "menu" and _is_timed_out(sess):
+    if _is_timed_out(sess):
         _save(db, sess, "sleeping", {})
-        # Silenciosamente dorme, exigindo "oi" para acordar de novo
+        # Silenciosamente dorme, exigindo comando de menu para acordar de novo
         return
 
     # ── Comando global: "0" ou "sair" adormece o bot silenciosamente ───────
@@ -203,12 +229,15 @@ async def _handle_menu(db: Session, sess: WhatsappSession, phone: str, text: str
 
 async def _iniciar_orcamento(db: Session, sess: WhatsappSession, phone: str, target: str):
     """Inicia o fluxo de orçamento, reconhecendo cliente já cadastrado."""
-    # Busca cliente pelo número do WhatsApp (o número sem DDI ou com)
-    cliente = (
-        db.query(Cliente)
-        .filter(Cliente.telefone.contains(phone[-9:]))  # últimos 9 dígitos
-        .first()
-    )
+    incoming_variants = _phone_variants(phone)
+    cliente = None
+    if incoming_variants:
+        # Evita falso positivo por "contains": normaliza e compara variantes equivalentes.
+        for candidate in db.query(Cliente).filter(Cliente.telefone.isnot(None)).all():
+            candidate_digits = _digits_only(candidate.telefone)
+            if candidate_digits and candidate_digits in incoming_variants:
+                cliente = candidate
+                break
 
     if cliente:
         # Melhoria 5: cliente já existe — preencher dados automaticamente
@@ -440,7 +469,7 @@ async def _orc_confirmar(db: Session, sess: WhatsappSession, phone: str, text: s
         total = sum(i["valor"] for i in d["itens"])
         negocio = Negocio(
             cliente_id=cliente.id,
-            tipo="servico",
+            tipo="manutencao",
             status="orcamento_enviado",
             valor=total,
             observacoes="Criado via WhatsApp Bot",

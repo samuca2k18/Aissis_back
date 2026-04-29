@@ -4,15 +4,24 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
-from ..security import require_api_key
+from ..security import require_permission
 from ..services import documento as documento_service
 
-router = APIRouter(prefix="/documentos", tags=["documentos"], dependencies=[Depends(require_api_key)])
+router = APIRouter(
+    prefix="/documentos",
+    tags=["documentos"],
+    dependencies=[Depends(require_permission("documentos", "read"))],
+)
 
 
 # ── Orçamento ────────────────────────────────────────────────────────────────
 
-@router.post("/orcamento", response_model=schemas.DocumentoOut, status_code=201)
+@router.post(
+    "/orcamento",
+    response_model=schemas.DocumentoOut,
+    status_code=201,
+    dependencies=[Depends(require_permission("documentos", "write"))],
+)
 def gerar_orcamento(payload: schemas.OrcamentoCreate, db: Session = Depends(get_db)):
     return documento_service.gerar_orcamento(db, payload)
 
@@ -29,7 +38,12 @@ def download_orcamento_pdf(doc_id: int, db: Session = Depends(get_db)):
 
 # ── Recibo ────────────────────────────────────────────────────────────────────
 
-@router.post("/recibo", response_model=schemas.DocumentoOut, status_code=201)
+@router.post(
+    "/recibo",
+    response_model=schemas.DocumentoOut,
+    status_code=201,
+    dependencies=[Depends(require_permission("documentos", "write"))],
+)
 def gerar_recibo(payload: schemas.ReciboCreate, db: Session = Depends(get_db)):
     return documento_service.gerar_recibo(db, payload)
 
@@ -46,7 +60,12 @@ def download_recibo_pdf(doc_id: int, db: Session = Depends(get_db)):
 
 # ── Contrato de Locação ───────────────────────────────────────────────────────
 
-@router.post("/contrato-locacao", response_model=schemas.DocumentoOut, status_code=201)
+@router.post(
+    "/contrato-locacao",
+    response_model=schemas.DocumentoOut,
+    status_code=201,
+    dependencies=[Depends(require_permission("documentos", "write"))],
+)
 def gerar_contrato_locacao(payload: schemas.ContratoLocacaoCreate, db: Session = Depends(get_db)):
     return documento_service.gerar_contrato_locacao(db, payload)
 
