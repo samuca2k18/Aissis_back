@@ -240,29 +240,33 @@ async def send_buttons(phone: str, text: str, buttons: list[dict], title: str = 
             "id": str(btn.get("id", label))
         })
 
-    payload = {
-        "number": phone,
-        "title": title,
-        "description": text,
-        "footer": footer,
-        "buttons": formatted_buttons
-    }
+    if settings.WHATSAPP_USE_BUTTONS:
+        payload = {
+            "number": phone,
+            "title": title,
+            "description": text,
+            "footer": footer,
+            "buttons": formatted_buttons
+        }
 
-    try:
-        async with httpx.AsyncClient(timeout=_timeout(30.0)) as client:
-            r = await client.post(_url("message/sendButtons"), json=payload, headers=_HEADERS)
-            if r.status_code in (200, 201):
-                return r.json()
-            log.warning(f"send_buttons retornou {r.status_code} — usando fallback de texto. Body: {r.text[:200]}")
-            # Se falhou com 400 em LID, o fallback de texto será chamado abaixo com o phone original
-    except Exception as e:
-        log.warning(f"send_buttons falhou ({e}) — usando fallback de texto")
+        try:
+            async with httpx.AsyncClient(timeout=_timeout(30.0)) as client:
+                r = await client.post(_url("message/sendButtons"), json=payload, headers=_HEADERS)
+                if r.status_code in (200, 201):
+                    return r.json()
+                log.warning(f"send_buttons retornou {r.status_code} — usando fallback de texto. Body: {r.text[:200]}")
+                # Se falhou com 400 em LID, o fallback de texto será chamado abaixo com o phone original
+        except Exception as e:
+            log.warning(f"send_buttons falhou ({e}) — usando fallback de texto")
 
     # ── Fallback: texto simples com opções numeradas ──────────────────────────
-    opcoes = "\n".join(
-        f"{btn.get('id')}️⃣  {btn.get('label', btn.get('displayText'))}"
-        for btn in buttons
-    )
+    opcoes_linhas: list[str] = []
+    for btn in buttons:
+        button_id = str(btn.get("id", "")).strip()
+        label = btn.get("label", btn.get("displayText", button_id))
+        prefix = f"{button_id})" if button_id else "-"
+        opcoes_linhas.append(f"{prefix} {label}")
+    opcoes = "\n".join(opcoes_linhas)
     fallback_text = f"{text}\n\n{opcoes}"
     if footer:
         fallback_text += f"\n\n_{footer}_"

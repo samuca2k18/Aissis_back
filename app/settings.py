@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     EVOLUTION_API_KEY: str = ""
     EVOLUTION_API_INSTANCE: str = ""
     EVOLUTION_API_TIMEOUT_SECONDS: float = 10.0
+    WHATSAPP_USE_BUTTONS: bool = False
     WHATSAPP_WEBHOOK_TOKEN: str = ""
     WHATSAPP_LID_MAP_JSON: str = ""
 
