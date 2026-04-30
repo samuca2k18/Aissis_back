@@ -115,7 +115,8 @@ async def _build_incoming_message(body: dict[str, Any]) -> IncomingMessage | Non
     if not message or key.get("fromMe") is True:
         return None
 
-    remote_jid = key.get("remoteJid", "")
+    remote_jid = (key.get("remoteJid") or "").strip()
+    remote_jid_alt = (key.get("remoteJidAlt") or "").strip()
     if not _is_direct_message(remote_jid):
         return None
 
@@ -129,12 +130,19 @@ async def _build_incoming_message(body: dict[str, Any]) -> IncomingMessage | Non
 
     target = remote_jid
     if remote_jid.endswith("@lid"):
-        resolved_target = await resolve_lid(remote_jid)
-        if resolved_target != remote_jid:
-            target = resolved_target
-            resolved_phone = _normalize_br_phone(_extract_digits_from_jid(resolved_target))
+        # Em contas com LID, o webhook costuma trazer o JID canônico em remoteJidAlt.
+        if remote_jid_alt.endswith("@s.whatsapp.net"):
+            target = remote_jid_alt
+            resolved_phone = _normalize_br_phone(_extract_digits_from_jid(remote_jid_alt))
             if resolved_phone:
                 phone = resolved_phone
+        else:
+            resolved_target = await resolve_lid(remote_jid)
+            if resolved_target != remote_jid:
+                target = resolved_target
+                resolved_phone = _normalize_br_phone(_extract_digits_from_jid(resolved_target))
+                if resolved_phone:
+                    phone = resolved_phone
 
     message_id = key.get("id")
     return IncomingMessage(phone=phone, text=text, target=target, key=key, message_id=message_id)
