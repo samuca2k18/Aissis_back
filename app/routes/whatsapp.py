@@ -145,17 +145,33 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.json()
     except Exception:
+        log.warning("whatsapp_webhook_ignored reason=invalid_json")
         return {"status": "ignored", "reason": "invalid_json"}
 
     event = body.get("event", "")
     if not _is_messages_upsert_event(event):
+        log.info("whatsapp_webhook_ignored reason=event_not_supported event=%s", event or "unknown")
         return {"status": "ignored", "reason": f"event_{event or 'unknown'}"}
 
     incoming = await _build_incoming_message(body)
     if incoming is None:
+        data = body.get("data") or {}
+        key = data.get("key") or {}
+        message = data.get("message") or {}
+        log.info(
+            "whatsapp_webhook_ignored reason=unsupported_message from_me=%s has_message=%s remote_jid=%s",
+            key.get("fromMe"),
+            bool(message),
+            mask_jid(key.get("remoteJid", "")),
+        )
         return {"status": "ignored", "reason": "unsupported_message"}
 
     if incoming.message_id and not _persist_message_id(incoming.message_id, incoming.phone):
+        log.info(
+            "whatsapp_webhook_ignored reason=duplicated_message message_id=%s phone=%s",
+            incoming.message_id,
+            mask_phone(incoming.phone),
+        )
         return {"status": "ignored", "reason": "duplicated_message"}
 
     log.info(
