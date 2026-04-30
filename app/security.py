@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -177,16 +177,22 @@ def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Ke
 
 
 def require_whatsapp_webhook_token(
+    request: Request,
     x_webhook_token: str | None = Header(default=None, alias="X-Webhook-Token"),
+    webhook_token: str | None = Query(default=None, alias="webhook_token"),
+    token: str | None = Query(default=None, alias="token"),
 ) -> None:
-    """Protege webhook do WhatsApp com token obrigatório."""
+    """Protege webhook do WhatsApp com token obrigatorio."""
     expected = settings.WHATSAPP_WEBHOOK_TOKEN.strip()
     if not expected:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Webhook token nao configurado no servidor.",
         )
-    if not x_webhook_token or not hmac.compare_digest(x_webhook_token, expected):
+    provided_token = x_webhook_token or webhook_token or token
+    if not provided_token:
+        provided_token = request.query_params.get("x_webhook_token")
+    if not provided_token or not hmac.compare_digest(provided_token, expected):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook token.")
 
 

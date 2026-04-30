@@ -1,5 +1,6 @@
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
 from app.security import (
     ServicePrincipal,
@@ -49,6 +50,13 @@ def test_bootstrap_token_is_required_and_validated(monkeypatch):
 
 def test_whatsapp_webhook_token_must_be_configured(monkeypatch):
     monkeypatch.setattr(settings, "WHATSAPP_WEBHOOK_TOKEN", "")
+    request = Request({"type": "http", "headers": [], "query_string": b""})
     with pytest.raises(HTTPException) as exc:
-        require_whatsapp_webhook_token(None)
+        require_whatsapp_webhook_token(request, None, None, None)
     assert exc.value.status_code == 503
+
+
+def test_whatsapp_webhook_token_accepts_query_token(monkeypatch):
+    monkeypatch.setattr(settings, "WHATSAPP_WEBHOOK_TOKEN", "token-seguro")
+    request = Request({"type": "http", "headers": [], "query_string": b"token=token-seguro"})
+    require_whatsapp_webhook_token(request, None, "token-seguro", None)
