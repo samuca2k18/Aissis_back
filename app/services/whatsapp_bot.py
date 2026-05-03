@@ -31,7 +31,8 @@ SESSION_TIMEOUT_MINUTES = 30
 
 MENU_TEXT = (
     "🎹 *Assis Pianos — Atendimento Automático*\n\n"
-    "Olá! Como posso ajudar? Escolha uma opção abaixo:"
+    "Olá! Como posso ajudar? Escolha uma opção abaixo:\n"
+    "Digite *0* para sair e deixar o bot dormindo."
 )
 
 MENU_BUTTONS = [
@@ -48,6 +49,8 @@ MENU_TEXT_FALLBACK = (
 # ─── palavras-chave para atalho (SOMENTE dentro do fluxo ativo) ─────────────
 _KW_ORCAMENTO  = {"orçamento", "orcamento", "orcar", "orçar", "preço", "preco", "valor", "quanto"}
 _KW_AGENDAR    = {"agendar", "agendamento", "marcar"}
+_WAKE_WORDS    = {"menu", "iniciar", "inicio", "start", "ajuda"}
+_SLEEP_WORDS   = {"0", "sair", "dormir", "pausar", "silencio", "silêncio"}
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
@@ -170,8 +173,7 @@ async def handle_message(
         t = text.lower().strip()
         import re
         words = set(re.findall(r'\w+', t))
-        kws = {"menu", "iniciar", "inicio", "start", "ajuda"}
-        if words.intersection(kws):
+        if words.intersection(_WAKE_WORDS):
             _save(db, sess, "menu", {})
             await evolution_api.send_buttons(target, MENU_TEXT, MENU_BUTTONS)
         # Qualquer outra mensagem obscura: ignorar completamente (sem resposta)
@@ -183,10 +185,14 @@ async def handle_message(
         # Silenciosamente dorme, exigindo comando de menu para acordar de novo
         return
 
-    # ── Comando global: "0" ou "sair" adormece o bot silenciosamente ───────
-    if text in ("0", "sair", "Sair", "SAIR"):
+    # ── Comando global: sair/dormir coloca o bot em modo silencioso ───────
+    if text.lower().strip() in _SLEEP_WORDS:
         _save(db, sess, "sleeping", {})
-        # Sem resposta: desaparece silenciosamente
+        if sess.state == "menu":
+            await evolution_api.send_text(
+                target,
+                "😴 Bot em modo silencioso.\nEnvie *menu* para ativar novamente."
+            )
         return
 
     # ── Atalhos por palavras-chave (dentro do fluxo ativo) ──────────────
@@ -230,7 +236,7 @@ async def _handle_menu(db: Session, sess: WhatsappSession, phone: str, text: str
         # Aviso curto em vez de repetir todos os botões e texto toda vez
         await evolution_api.send_text(
             target,
-            "⚠️ Opção não reconhecida.\nPor favor, **digite 1, 2 ou 3** (ou escolha no botão acima)."
+            "⚠️ Opção não reconhecida.\nPor favor, **digite 1, 2, 3 ou 0** (ou escolha no botão acima)."
         )
 
 
