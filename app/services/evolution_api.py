@@ -66,7 +66,7 @@ async def check_evolution_health() -> bool:
 
 async def resolve_lid(lid_jid: str) -> str:
     """Resolve um JID @lid para o JID real @s.whatsapp.net.
-    Tenta múltiplas estratégias: findChats, findContacts.
+    Tenta múltiplas estratégias: contact/profile, findChats, findContacts.
     Retorna o JID real se encontrado, caso contrário retorna o próprio lid_jid.
     """
     if lid_jid in _lid_cache:
@@ -74,6 +74,39 @@ async def resolve_lid(lid_jid: str) -> str:
 
     try:
         async with httpx.AsyncClient(timeout=_timeout()) as client:
+            # Estratégia 0: contact/profile — endpoint mais confiável para resolver LID
+            try:
+                # Codifica o JID para usar na URL
+                import urllib.parse
+                encoded_jid = urllib.parse.quote(lid_jid, safe="")
+                r = await client.get(
+                    f"{_BASE}/chat/findContacts/{_INSTANCE}?where[id]={encoded_jid}",
+                    headers=_HEADERS,
+                )
+                if r.status_code in (200, 201):
+                    data = r.json()
+                    log.info(f"🔍 findContacts (query) para {lid_jid}: {str(data)[:500]}")
+                    contacts = data if isinstance(data, list) else [data] if isinstance(data, dict) else []
+                    for contact in contacts:
+                        # Tenta pegar o 'owner' que costuma ter o número real
+                        for field in ("owner", "id"):
+                            val = contact.get(field, "")
+                            if isinstance(val, str) and val.endswith("@s.whatsapp.net"):
+                                _lid_cache[lid_jid] = val
+                                log.info(f"🔗 LID Resolvido via contact.{field}: {lid_jid} → {val}")
+                                return val
+                        # Tenta extrair o número do campo 'number' ou 'pushName'
+                        for field in ("number", "phone"):
+                            val = contact.get(field, "")
+                            if val and str(val).replace("+", "").replace(" ", "").isdigit():
+                                digits = str(val).replace("+", "").replace(" ", "")
+                                resolved = f"{digits}@s.whatsapp.net"
+                                _lid_cache[lid_jid] = resolved
+                                log.info(f"🔗 LID Resolvido via contact.{field}: {lid_jid} → {resolved}")
+                                return resolved
+            except Exception as e:
+                log.warning(f"🔍 Erro findContacts (query): {e}")
+
             # Estratégia 1: findChats — busca o chat pelo remoteJid do LID
             try:
                 r = await client.post(
@@ -83,7 +116,7 @@ async def resolve_lid(lid_jid: str) -> str:
                 )
                 if r.status_code in (200, 201):
                     chats = r.json()
-                    log.warning(f"🔍 findChats para {lid_jid}: {str(chats)[:500]}")
+                    log.info(f"🔍 findChats para {lid_jid}: {str(chats)[:500]}")
                     if isinstance(chats, list):
                         for chat in chats:
                             # Procura campo 'phone' ou 'number' com o telefone real
@@ -93,12 +126,12 @@ async def resolve_lid(lid_jid: str) -> str:
                                     digits = val.replace("+", "").replace(" ", "")
                                     resolved = f"{digits}@s.whatsapp.net"
                                     _lid_cache[lid_jid] = resolved
-                                    log.warning(f"🔗 LID Resolvido via chat.{field}: {lid_jid} → {resolved}")
+                                    log.info(f"🔗 LID Resolvido via chat.{field}: {lid_jid} → {resolved}")
                                     return resolved
             except Exception as e:
                 log.warning(f"🔍 Erro findChats: {e}")
 
-            # Estratégia 2: findContacts — busca contato pelo ID do LID
+            # Estratégia 2: findContacts (POST) — busca contato pelo ID do LID
             try:
                 r = await client.post(
                     _url("chat/findContacts"),
@@ -107,17 +140,17 @@ async def resolve_lid(lid_jid: str) -> str:
                 )
                 if r.status_code in (200, 201):
                     contacts = r.json()
-                    log.warning(f"🔍 findContacts para {lid_jid}: {str(contacts)[:500]}")
+                    log.info(f"🔍 findContacts (POST) para {lid_jid}: {str(contacts)[:500]}")
                     if isinstance(contacts, list):
                         for contact in contacts:
                             # Procura o campo 'id' que seja @s.whatsapp.net
                             cid = contact.get("id", "")
                             if "@s.whatsapp.net" in cid:
                                 _lid_cache[lid_jid] = cid
-                                log.warning(f"🔗 LID Resolvido via contact.id: {lid_jid} → {cid}")
+                                log.info(f"🔗 LID Resolvido via contact.id: {lid_jid} → {cid}")
                                 return cid
             except Exception as e:
-                log.warning(f"🔍 Erro findContacts: {e}")
+                log.warning(f"🔍 Erro findContacts (POST): {e}")
 
     except Exception as e:
         log.warning(f"🔍 Erro geral ao resolver LID {lid_jid}: {e}")
@@ -132,29 +165,45 @@ async def send_text(phone: str, text: str) -> dict:
     if not phone.endswith("@s.whatsapp.net") and not phone.endswith("@g.us") and not phone.endswith("@lid") and "|" not in phone:
         phone = f"{phone}@s.whatsapp.net"
 
-    options: dict[str, object] = {"delay": 0, "linkPreview": False, "checkNumber": False}
+    msg_id: str | None = None
+    quoted: dict[str, object] | None = None
     if "|" in phone:
         phone, msg_id = phone.split("|", 1)
-        options["quoted"] = {
+        quoted_key: dict[str, object] = {"id": msg_id}
+        if "@" in phone:
+            quoted_key["remoteJid"] = phone
+            quoted_key["fromMe"] = False
+            quoted_key["participant"] = phone
+            quoted_key["owner"] = phone
+        quoted = {
             "key": {
-                "remoteJid": phone,
-                "fromMe": False,
-                "id": msg_id
+                **quoted_key,
             }
         }
 
-    payload = {
+    payload: dict[str, object] = {
         "number": phone,
         "text": text,
-        "options": options
+        "delay": 0,
+        "linkPreview": False,
     }
+    if quoted:
+        payload["quoted"] = quoted
+
     async with httpx.AsyncClient(timeout=_timeout(30.0)) as client:
         try:
             r = await client.post(_url("message/sendText"), json=payload, headers=_HEADERS)
             if r.status_code != 201 and r.status_code != 200:
                 log.error(f"Erro Evolution (sendText): {r.status_code} - {r.text}")
-                # Se falhou com JID @lid, tenta converter para @s.whatsapp.net e re-enviar (fallback manual)
+                # Se houver mapeamento estático para o LID, tenta o JID canônico.
                 if "@lid" in phone and r.status_code == 400:
+                    mapped_jid = _lid_cache.get(phone)
+                    if mapped_jid and mapped_jid != phone:
+                        retry_target = f"{mapped_jid}|{msg_id}" if msg_id else mapped_jid
+                        log.warning(f"🔄 Retry LID mapeado: {phone} -> {mapped_jid}")
+                        return await send_text(retry_target, text)
+                # Se falhou com JID @lid, tenta converter para @s.whatsapp.net e re-enviar (fallback manual)
+                if "@lid" in phone and r.status_code == 400 and not msg_id:
                     import re
                     digits = "".join(re.findall(r"\d+", phone.split("@")[0]))
                     if digits:
@@ -179,33 +228,48 @@ async def send_media(phone: str, media_bytes: bytes, filename: str, caption: str
     if not mime_type:
         mime_type = "application/octet-stream"
 
-    options: dict[str, object] = {"delay": 0, "checkNumber": False}
+    msg_id: str | None = None
+    quoted: dict[str, object] | None = None
     if "|" in phone:
         phone, msg_id = phone.split("|", 1)
-        options["quoted"] = {
+        quoted_key: dict[str, object] = {"id": msg_id}
+        if "@" in phone:
+            quoted_key["remoteJid"] = phone
+            quoted_key["fromMe"] = False
+            quoted_key["participant"] = phone
+            quoted_key["owner"] = phone
+        quoted = {
             "key": {
-                "remoteJid": phone,
-                "fromMe": False,
-                "id": msg_id
+                **quoted_key,
             }
         }
 
-    payload = {
+    payload: dict[str, object] = {
         "number": phone,
         "mediatype": "document",
         "mimetype": mime_type,
         "media": b64_data,
         "fileName": filename,
         "caption": caption,
-        "options": options
+        "delay": 0,
     }
+    if quoted:
+        payload["quoted"] = quoted
+
     async with httpx.AsyncClient(timeout=_timeout(60.0)) as client:
         try:
             r = await client.post(_url("message/sendMedia"), json=payload, headers=_HEADERS)
             if r.status_code != 201 and r.status_code != 200:
                 log.error(f"Erro Evolution (sendMedia): {r.status_code} - {r.text}")
-                # Fallback LID
+                # Se houver mapeamento estático para o LID, tenta o JID canônico.
                 if "@lid" in phone and r.status_code == 400:
+                    mapped_jid = _lid_cache.get(phone)
+                    if mapped_jid and mapped_jid != phone:
+                        retry_target = f"{mapped_jid}|{msg_id}" if msg_id else mapped_jid
+                        log.warning(f"🔄 Retry LID mapeado (Media): {phone} -> {mapped_jid}")
+                        return await send_media(retry_target, media_bytes, filename, caption)
+                # Fallback LID
+                if "@lid" in phone and r.status_code == 400 and not msg_id:
                     import re
                     digits = "".join(re.findall(r"\d+", phone.split("@")[0]))
                     if digits:

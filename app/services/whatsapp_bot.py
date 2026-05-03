@@ -149,16 +149,9 @@ async def handle_message(
     # Se não informar JID completo, tenta montar o padrão
     target = recipient_jid or f"{phone}@s.whatsapp.net"
 
-    # Para contatos LID, prefira responder no remoteJid original do webhook com quoted.
-    # Isso reduz falhas "exists: false" em contas que chegam com remoteJidAlt.
-    if message_key:
-        original_remote_jid = str(message_key.get("remoteJid") or "").strip()
-        original_message_id = message_key.get("id")
-        if original_remote_jid.endswith("@lid") and original_message_id:
-            target = f"{original_remote_jid}|{original_message_id}"
-
-    # Bypass de @lid: a Evolution API bloqueia envios diretos via 'exists: false'
-    # Se cotarmos a mensagem original, a API entrega.
+    # Se o target já foi resolvido para @s.whatsapp.net pela rota do webhook,
+    # NÃO devemos sobrescrever com o LID bruto do message_key.
+    # Só usamos o LID+quoted como último recurso se a resolução falhou.
     if "@lid" in target and message_key:
         msg_id = message_key.get("id")
         if msg_id and "|" not in target:
