@@ -8,7 +8,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .database import Base, SessionLocal, check_database_health, engine
-from .routes import agenda, auditoria, auth, campanhas, clientes, dashboard, documentos, leads, negocios, whatsapp
+from .routes import (
+    agenda,
+    auditoria,
+    auth,
+    campanhas,
+    clientes,
+    dashboard,
+    documentos,
+    leads,
+    negocios,
+    whatsapp_router,
+)
 from .services import auth as auth_service
 from .services.audit import AuditEvent, register_audit_event
 from .services.evolution_api import check_evolution_health
@@ -132,7 +143,7 @@ def create_app() -> FastAPI:
     app.include_router(agenda)
     app.include_router(dashboard)
     app.include_router(auditoria)
-    app.include_router(whatsapp)
+    app.include_router(whatsapp_router)
 
     @app.get("/health", tags=["health"])
     async def health():
