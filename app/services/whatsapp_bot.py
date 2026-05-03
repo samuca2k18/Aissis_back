@@ -151,9 +151,17 @@ async def handle_message(
 
     # Se o target já foi resolvido para @s.whatsapp.net pela rota do webhook,
     # NÃO devemos sobrescrever com o LID bruto do message_key.
-    # Só usamos o LID+quoted como último recurso se a resolução falhou.
-    if "@lid" in target and message_key:
+    # Registramos o mapeamento LID→phone para que send_text possa usar como fallback.
+    if message_key:
+        original_remote_jid = str(message_key.get("remoteJid") or "").strip()
         msg_id = message_key.get("id")
+
+        # Se temos um target @s.whatsapp.net e o message_key tem um LID,
+        # registra o mapeamento para fallback em send_text/send_media
+        if original_remote_jid.endswith("@lid") and "@s.whatsapp.net" in target:
+            evolution_api.register_lid_mapping(target.split("|")[0], original_remote_jid)
+
+        # Anexa msg_id para quoted reply (melhora entrega em contatos LID via fallback)
         if msg_id and "|" not in target:
             target = f"{target}|{msg_id}"
 

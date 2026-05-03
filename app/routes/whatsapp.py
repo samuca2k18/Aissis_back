@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.database import SessionLocal
 from app.models.webhook_message import WebhookMessage
 from app.security import mask_jid, mask_phone, require_whatsapp_webhook_token
-from app.services.evolution_api import resolve_lid
+from app.services.evolution_api import register_lid_mapping, resolve_lid
 from app.services.whatsapp_bot import handle_message
 
 log = logging.getLogger(__name__)
@@ -136,6 +136,8 @@ async def _build_incoming_message(body: dict[str, Any]) -> IncomingMessage | Non
             resolved_phone = _normalize_br_phone(_extract_digits_from_jid(remote_jid_alt))
             if resolved_phone:
                 phone = resolved_phone
+            # Registra mapeamento bidirecional para fallbacks futuros
+            register_lid_mapping(remote_jid_alt, remote_jid)
         else:
             resolved_target = await resolve_lid(remote_jid)
             if resolved_target != remote_jid:
@@ -143,6 +145,8 @@ async def _build_incoming_message(body: dict[str, Any]) -> IncomingMessage | Non
                 resolved_phone = _normalize_br_phone(_extract_digits_from_jid(resolved_target))
                 if resolved_phone:
                     phone = resolved_phone
+                # Registra mapeamento bidirecional para fallbacks futuros
+                register_lid_mapping(resolved_target, remote_jid)
 
     message_id = key.get("id")
     return IncomingMessage(phone=phone, text=text, target=target, key=key, message_id=message_id)

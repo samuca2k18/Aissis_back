@@ -3,6 +3,7 @@
 import json
 import logging
 import mimetypes
+import re
 
 import httpx
 
@@ -41,6 +42,37 @@ def _load_lid_map() -> dict[str, str]:
 
 
 _lid_cache: dict[str, str] = _load_lid_map()
+
+# Cache reverso: phone@s.whatsapp.net → LID@lid
+# Populado automaticamente quando o webhook resolve um LID
+_phone_to_lid: dict[str, str] = {}
+
+
+def register_lid_mapping(phone_jid: str, lid_jid: str) -> None:
+    """Registra o mapeamento bidirecional entre phone JID e LID JID."""
+    if lid_jid and phone_jid and lid_jid.endswith("@lid") and "@s.whatsapp.net" in phone_jid:
+        _lid_cache[lid_jid] = phone_jid
+        _phone_to_lid[phone_jid] = lid_jid
+        # Também registra variantes BR do telefone
+        digits = "".join(re.findall(r"\d+", phone_jid.split("@")[0]))
+        for variant in _br_phone_variants(digits):
+            variant_jid = f"{variant}@s.whatsapp.net"
+            _phone_to_lid[variant_jid] = lid_jid
+        log.info(f"📋 LID mapeado: {phone_jid} ↔ {lid_jid}")
+
+
+def _br_phone_variants(digits: str) -> list[str]:
+    """Gera variantes brasileiras de número (com/sem 9° dígito)."""
+    variants = []
+    if not digits.startswith("55") or len(digits) not in (12, 13):
+        return variants
+    if len(digits) == 13 and digits[4] == "9":
+        # 5585996224425 → 558596224425 (sem o 9)
+        variants.append(digits[:4] + digits[5:])
+    if len(digits) == 12:
+        # 558596224425 → 5585996224425 (com o 9)
+        variants.append(digits[:4] + "9" + digits[4:])
+    return variants
 
 
 def _url(path: str) -> str:
@@ -159,8 +191,14 @@ async def resolve_lid(lid_jid: str) -> str:
     return lid_jid
 
 
-async def send_text(phone: str, text: str) -> dict:
-    """Envia uma mensagem de texto simples via Evolution API v2."""
+async def send_text(phone: str, text: str, _depth: int = 0) -> dict:
+    """Envia uma mensagem de texto simples via Evolution API v2.
+    _depth: controle interno de recursão para evitar loops infinitos de fallback.
+    """
+    if _depth > 3:
+        log.error(f"send_text: profundidade máxima de fallback atingida para {phone}")
+        return {"status": "error", "message": "max fallback depth reached"}
+
     # Adicionar sufixo
     if not phone.endswith("@s.whatsapp.net") and not phone.endswith("@g.us") and not phone.endswith("@lid") and "|" not in phone:
         phone = f"{phone}@s.whatsapp.net"
@@ -193,22 +231,58 @@ async def send_text(phone: str, text: str) -> dict:
     async with httpx.AsyncClient(timeout=_timeout(30.0)) as client:
         try:
             r = await client.post(_url("message/sendText"), json=payload, headers=_HEADERS)
-            if r.status_code != 201 and r.status_code != 200:
-                log.error(f"Erro Evolution (sendText): {r.status_code} - {r.text}")
-                # Se houver mapeamento estático para o LID, tenta o JID canônico.
-                if "@lid" in phone and r.status_code == 400:
-                    mapped_jid = _lid_cache.get(phone)
-                    if mapped_jid and mapped_jid != phone:
-                        retry_target = f"{mapped_jid}|{msg_id}" if msg_id else mapped_jid
-                        log.warning(f"🔄 Retry LID mapeado: {phone} -> {mapped_jid}")
-                        return await send_text(retry_target, text)
-                # Se falhou com JID @lid, tenta converter para @s.whatsapp.net e re-enviar (fallback manual)
-                if "@lid" in phone and r.status_code == 400 and not msg_id:
-                    import re
+            if r.status_code in (200, 201):
+                return r.json()
+
+            log.error(f"Erro Evolution (sendText): {r.status_code} - {r.text}")
+
+            if r.status_code != 400:
+                r.raise_for_status()
+
+            # ── Cadeia de fallback para 400 Bad Request ──────────────────
+
+            # Fallback 1: Se @s.whatsapp.net falhou, tenta variante BR (com/sem 9°)
+            if "@s.whatsapp.net" in phone:
+                digits = "".join(re.findall(r"\d+", phone.split("@")[0]))
+                for variant in _br_phone_variants(digits):
+                    variant_target = f"{variant}@s.whatsapp.net"
+                    if variant_target != phone:
+                        log.warning(f"🔄 Fallback variante BR: {phone} → {variant_target}")
+                        result = await send_text(
+                            f"{variant_target}|{msg_id}" if msg_id else variant_target,
+                            text, _depth + 1,
+                        )
+                        if result.get("status") != "error":
+                            return result
+
+            # Fallback 2: Se @s.whatsapp.net (ou variante) falhou, tenta LID do cache reverso
+            if "@s.whatsapp.net" in phone:
+                mapped_lid = _phone_to_lid.get(phone)
+                if not mapped_lid:
+                    # Tenta buscar por variantes do telefone
                     digits = "".join(re.findall(r"\d+", phone.split("@")[0]))
-                    if digits:
-                        log.warning(f"🔄 Fallback LID -> s.whatsapp.net: {digits}")
-                        return await send_text(digits, text)
+                    for variant in _br_phone_variants(digits):
+                        mapped_lid = _phone_to_lid.get(f"{variant}@s.whatsapp.net")
+                        if mapped_lid:
+                            break
+                if mapped_lid:
+                    lid_target = f"{mapped_lid}|{msg_id}" if msg_id else mapped_lid
+                    log.warning(f"🔄 Fallback → LID do cache reverso: {phone} → {mapped_lid}")
+                    return await send_text(lid_target, text, _depth + 1)
+
+            # Fallback 3: Se @lid falhou, tenta JID canônico do _lid_cache
+            if "@lid" in phone:
+                mapped_jid = _lid_cache.get(phone)
+                if mapped_jid and mapped_jid != phone:
+                    retry_target = f"{mapped_jid}|{msg_id}" if msg_id else mapped_jid
+                    log.warning(f"🔄 Fallback LID → JID mapeado: {phone} → {mapped_jid}")
+                    return await send_text(retry_target, text, _depth + 1)
+                # Último recurso: extrai dígitos do LID e tenta como @s.whatsapp.net
+                digits = "".join(re.findall(r"\d+", phone.split("@")[0]))
+                if digits:
+                    log.warning(f"🔄 Fallback LID → dígitos: {digits}")
+                    return await send_text(digits, text, _depth + 1)
+
             r.raise_for_status()
             return r.json()
         except Exception as e:
@@ -259,22 +333,56 @@ async def send_media(phone: str, media_bytes: bytes, filename: str, caption: str
     async with httpx.AsyncClient(timeout=_timeout(60.0)) as client:
         try:
             r = await client.post(_url("message/sendMedia"), json=payload, headers=_HEADERS)
-            if r.status_code != 201 and r.status_code != 200:
-                log.error(f"Erro Evolution (sendMedia): {r.status_code} - {r.text}")
-                # Se houver mapeamento estático para o LID, tenta o JID canônico.
-                if "@lid" in phone and r.status_code == 400:
-                    mapped_jid = _lid_cache.get(phone)
-                    if mapped_jid and mapped_jid != phone:
-                        retry_target = f"{mapped_jid}|{msg_id}" if msg_id else mapped_jid
-                        log.warning(f"🔄 Retry LID mapeado (Media): {phone} -> {mapped_jid}")
-                        return await send_media(retry_target, media_bytes, filename, caption)
-                # Fallback LID
-                if "@lid" in phone and r.status_code == 400 and not msg_id:
-                    import re
+            if r.status_code in (200, 201):
+                return r.json()
+
+            log.error(f"Erro Evolution (sendMedia): {r.status_code} - {r.text}")
+
+            if r.status_code != 400:
+                r.raise_for_status()
+
+            # ── Cadeia de fallback para 400 (mesma lógica do send_text) ──
+
+            # Fallback 1: variante BR (com/sem 9°)
+            if "@s.whatsapp.net" in phone:
+                digits = "".join(re.findall(r"\d+", phone.split("@")[0]))
+                for variant in _br_phone_variants(digits):
+                    variant_target = f"{variant}@s.whatsapp.net"
+                    if variant_target != phone:
+                        log.warning(f"🔄 Fallback variante BR (Media): {phone} → {variant_target}")
+                        result = await send_media(
+                            f"{variant_target}|{msg_id}" if msg_id else variant_target,
+                            media_bytes, filename, caption,
+                        )
+                        if result.get("status") != "error":
+                            return result
+
+            # Fallback 2: LID do cache reverso
+            if "@s.whatsapp.net" in phone:
+                mapped_lid = _phone_to_lid.get(phone)
+                if not mapped_lid:
                     digits = "".join(re.findall(r"\d+", phone.split("@")[0]))
-                    if digits:
-                        log.warning(f"🔄 Fallback LID -> s.whatsapp.net (Media): {digits}")
-                        return await send_media(digits, media_bytes, filename, caption)
+                    for variant in _br_phone_variants(digits):
+                        mapped_lid = _phone_to_lid.get(f"{variant}@s.whatsapp.net")
+                        if mapped_lid:
+                            break
+                if mapped_lid:
+                    lid_target = f"{mapped_lid}|{msg_id}" if msg_id else mapped_lid
+                    log.warning(f"🔄 Fallback → LID (Media): {phone} → {mapped_lid}")
+                    return await send_media(lid_target, media_bytes, filename, caption)
+
+            # Fallback 3: @lid → JID canônico
+            if "@lid" in phone:
+                mapped_jid = _lid_cache.get(phone)
+                if mapped_jid and mapped_jid != phone:
+                    retry_target = f"{mapped_jid}|{msg_id}" if msg_id else mapped_jid
+                    log.warning(f"🔄 Fallback LID → JID (Media): {phone} → {mapped_jid}")
+                    return await send_media(retry_target, media_bytes, filename, caption)
+                digits = "".join(re.findall(r"\d+", phone.split("@")[0]))
+                if digits:
+                    log.warning(f"🔄 Fallback LID → dígitos (Media): {digits}")
+                    return await send_media(digits, media_bytes, filename, caption)
+
             r.raise_for_status()
             return r.json()
         except Exception as e:
