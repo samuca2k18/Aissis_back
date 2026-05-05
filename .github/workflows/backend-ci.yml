@@ -2,17 +2,13 @@ name: Backend CI
 
 on:
   push:
-    paths:
-      - "**.py"
-      - "pyproject.toml"
-      - "requirements*.txt"
-      - ".github/workflows/backend-ci.yml"
   pull_request:
-    paths:
-      - "**.py"
-      - "pyproject.toml"
-      - "requirements*.txt"
-      - ".github/workflows/backend-ci.yml"
+    branches:
+      - main
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   quality:
@@ -79,3 +75,69 @@ jobs:
           cd "${{ steps.backend_dir.outputs.backend_dir }}"
           export PYTHONPATH="$PWD:${PYTHONPATH:-}"
           pytest -q
+
+  deploy_oracle:
+    name: Deploy to Oracle VM
+    runs-on: ubuntu-latest
+    needs: quality
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+      - name: Validate deploy secrets
+        shell: bash
+        env:
+          ORACLE_VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+          ORACLE_VM_USER: ${{ secrets.ORACLE_VM_USER }}
+          ORACLE_VM_SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          ORACLE_APP_DIR: ${{ secrets.ORACLE_APP_DIR }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for key in ORACLE_VM_HOST ORACLE_VM_USER ORACLE_VM_SSH_KEY ORACLE_APP_DIR; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Missing required secret: $key"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Deploy on VM via SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.ORACLE_VM_HOST }}
+          username: ${{ secrets.ORACLE_VM_USER }}
+          key: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          command_timeout: 30m
+          request_pty: true
+          script: |
+            set -euo pipefail
+
+            APP_DIR="${{ secrets.ORACLE_APP_DIR }}"
+            BRANCH="${{ github.ref_name }}"
+
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "Diretorio do backend nao encontrado ou sem .git: $APP_DIR"
+              exit 1
+            fi
+
+            cd "$APP_DIR"
+            git fetch --all --prune
+            git checkout "$BRANCH" || git checkout -b "$BRANCH" "origin/$BRANCH"
+            git pull origin "$BRANCH"
+
+            sudo docker compose up -d --build iassis-backend
+
+            for i in 1 2 3 4 5 6; do
+              if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+                echo "Healthcheck OK"
+                exit 0
+              fi
+              echo "Aguardando backend subir... tentativa $i/6"
+              sleep 10
+            done
+
+            echo "Backend nao respondeu no /health apos o deploy."
+            exit 1
