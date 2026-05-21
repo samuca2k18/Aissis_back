@@ -168,6 +168,51 @@ async def test_receipt_menu_option_generates_pdf_document(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_admin_receipt_does_not_use_admin_phone_as_payer(monkeypatch):
+    async def fake_send_text(phone: str, text: str):
+        return {"status": "ok"}
+
+    async def fake_send_buttons(phone: str, text: str, buttons: list[dict], title: str = "", footer: str = ""):
+        return {"status": "ok"}
+
+    async def fake_send_media(phone: str, media_bytes: bytes, filename: str, caption: str = ""):
+        return {"status": "ok"}
+
+    def fake_gerar_recibo_pdf(**kwargs):
+        return b"%PDF-recibo"
+
+    monkeypatch.setattr(evolution_api, "send_text", fake_send_text)
+    monkeypatch.setattr(evolution_api, "send_buttons", fake_send_buttons)
+    monkeypatch.setattr(evolution_api, "send_media", fake_send_media)
+    monkeypatch.setattr("app.services.whatsapp_bot.gerar_recibo_pdf", fake_gerar_recibo_pdf)
+
+    admin_phone = "5585991234567"
+    monkeypatch.setattr("app.services.whatsapp_bot.settings.WHATSAPP_ADMIN_PHONES", admin_phone)
+    db = _build_db_session()
+    try:
+        admin_cliente = Cliente(nome="Mae Admin", telefone=admin_phone, cidade="Fortaleza", origem="whatsapp")
+        db.add(admin_cliente)
+        db.commit()
+        db.refresh(admin_cliente)
+        _seed_menu_session(db, admin_phone)
+
+        await handle_message(db, admin_phone, "4")
+        await handle_message(db, admin_phone, "Cliente do Recibo")
+        await handle_message(db, admin_phone, "250")
+        await handle_message(db, admin_phone, "Afinacao")
+        await handle_message(db, admin_phone, "SIM")
+
+        negocio = db.query(Negocio).one()
+        assert negocio.cliente_id != admin_cliente.id
+
+        cliente_recibo = db.query(Cliente).filter(Cliente.id == negocio.cliente_id).one()
+        assert cliente_recibo.nome == "Cliente do Recibo"
+        assert cliente_recibo.telefone == "Nao informado"
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
 async def test_quick_client_registration_flow_creates_client(monkeypatch):
     async def fake_send_text(phone: str, text: str):
         return {"status": "ok"}

@@ -210,6 +210,23 @@ def _find_cliente_by_phone(db: Session, phone: str) -> Cliente | None:
     return None
 
 
+def _find_cliente_by_name(db: Session, name: str) -> Cliente | None:
+    normalized = name.strip().lower()
+    if not normalized:
+        return None
+
+    exact = db.query(Cliente).filter(func.lower(Cliente.nome) == normalized).first()
+    if exact:
+        return exact
+
+    return (
+        db.query(Cliente)
+        .filter(func.lower(Cliente.nome).contains(normalized))
+        .order_by(Cliente.created_at.desc())
+        .first()
+    )
+
+
 def _parse_datetime_pt(text: str) -> datetime | None:
     t = text.strip().lower()
     BRT = timezone(timedelta(hours=-3))
@@ -1119,6 +1136,15 @@ async def _orc_confirmar(db: Session, sess: WhatsappSession, phone: str, text: s
 
 async def _iniciar_recibo(db: Session, sess: WhatsappSession, phone: str, target: str):
     """Inicia o fluxo de recibo, reaproveitando cliente quando o telefone existe."""
+    if _is_admin_phone(phone):
+        _save(db, sess, "rec_nome", {"admin_flow": True})
+        await evolution_api.send_text(
+            target,
+            "🧾 *Recibo* — Vamos começar!\n\n"
+            "Qual o *nome ou telefone de quem pagou*?"
+        )
+        return
+
     cliente = _find_cliente_by_phone(db, phone)
     if cliente:
         d = {
@@ -1144,11 +1170,22 @@ async def _iniciar_recibo(db: Session, sess: WhatsappSession, phone: str, target
 
 async def _rec_nome(db: Session, sess: WhatsappSession, phone: str, text: str, target: str):
     d = _data(sess)
-    d["pagador_nome"] = text.strip()
+    pagador = text.strip()
+    cliente = _find_cliente_by_phone(db, pagador) if _digits_only(pagador) else _find_cliente_by_name(db, pagador)
+    if cliente:
+        d["pagador_nome"] = cliente.nome
+        d["cliente_id"] = cliente.id
+        d["cliente_existente"] = True
+    else:
+        d["pagador_nome"] = pagador
+        d.pop("cliente_id", None)
+        d.pop("cliente_existente", None)
+
     _save(db, sess, "rec_valor", d)
+    prefix = f"Encontrei o cadastro de *{cliente.nome}*.\n\n" if cliente else ""
     await evolution_api.send_text(
         target,
-        "Qual o *valor recebido*?\n_(ex: 350,00 ou R$ 1.200,00)_"
+        f"{prefix}Qual o *valor recebido*?\n_(ex: 350,00 ou R$ 1.200,00)_"
     )
 
 
@@ -1210,12 +1247,14 @@ async def _rec_confirmar(db: Session, sess: WhatsappSession, phone: str, text: s
         cliente_id = d.get("cliente_id")
         if cliente_id:
             cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
-        if cliente is None:
+        if cliente is None and not _is_admin_phone(phone):
             cliente = _find_cliente_by_phone(db, phone)
+        if cliente is None:
+            cliente = _find_cliente_by_name(db, d["pagador_nome"])
         if cliente is None:
             cliente = Cliente(
                 nome=d["pagador_nome"],
-                telefone=phone,
+                telefone=phone if not _is_admin_phone(phone) else "Nao informado",
                 cidade="Nao informado",
                 origem="whatsapp",
             )

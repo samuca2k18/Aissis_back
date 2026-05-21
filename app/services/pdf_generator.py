@@ -290,7 +290,7 @@ def gerar_recibo_pdf(
 ) -> bytes:
     """
     Gera recibo no modelo oficial da Assis Pianos:
-    logo + endereço + fone → R E C I B O → caixa valor (direita) → texto descritivo → assinatura
+    cabeçalho completo da empresa → R E C I B O → caixa valor (direita) → texto descritivo → assinatura
     """
     if data_recibo is None:
         data_recibo = datetime.now(UTC)
@@ -302,8 +302,8 @@ def gerar_recibo_pdf(
     s = _styles()
     story = []
 
-    # ── Cabeçalho simplificado do recibo (logo + endereço + fone, SEM CNPJ)
-    story += _company_header_recibo(s)
+    # Mesmo cabeçalho usado no orçamento: razão social, CNPJ, endereço, fone e e-mail.
+    story += _company_header_text(s)
 
     # ── Título
     story.append(Paragraph("<b>R E C I B O</b>", s["title"]))
@@ -334,7 +334,7 @@ def gerar_recibo_pdf(
     pagador_upper = pagador_nome.upper()
     descricao_upper = descricao.upper()
     texto = (
-        f" RECEBI DO SENHOR {pagador_upper} O VALOR {fmt_brl(valor)} "
+        f" RECEBI DE {pagador_upper} O VALOR {fmt_brl(valor)} "
         f"({valor_extenso}) REFERENTE A {descricao_upper}"
     )
     story.append(Paragraph(texto, s["recibo_texto"]))
@@ -561,7 +561,7 @@ def texto_recibo(
     valor_extenso = _valor_por_extenso_simples(valor).upper()
     return (
         f"RECIBO – ASSIS PIANOS\n\n"
-        f"RECEBI DO SENHOR {pagador_nome.upper()} O VALOR {fmt_brl(valor)} "
+        f"RECEBI DE {pagador_nome.upper()} O VALOR {fmt_brl(valor)} "
         f"({valor_extenso}) REFERENTE A {descricao.upper()}\n\n"
         f"Fortaleza, {data_recibo.strftime("%d/%m/%Y")}\n"
         f"ASSIS PIANOS – {settings.COMPANY_RESPONSAVEL}\n"
