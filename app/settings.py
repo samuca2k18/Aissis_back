@@ -38,6 +38,8 @@ class Settings(BaseSettings):
 
     # Telefone que recebe o resumo diário às 7h (formato: 5585999999999)
     WHATSAPP_NOTIFY_PHONE: str = ""
+    WHATSAPP_ADMIN_PHONES: str = ""
+    WHATSAPP_CLIENT_REMINDERS_ENABLED: bool = True
     BACKEND_API_KEY: str = ""
     CORS_ALLOW_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
     CORS_ALLOW_CREDENTIALS: bool = False
@@ -59,6 +61,13 @@ class Settings(BaseSettings):
         if not origins:
             return ["http://localhost:5173"]
         return origins
+
+    @property
+    def whatsapp_admin_phones(self) -> list[str]:
+        phones = [phone.strip() for phone in self.WHATSAPP_ADMIN_PHONES.split(self._ORIGINS_SEPARATOR) if phone.strip()]
+        if self.WHATSAPP_NOTIFY_PHONE.strip():
+            phones.append(self.WHATSAPP_NOTIFY_PHONE.strip())
+        return phones
 
     @property
     def is_production(self) -> bool:

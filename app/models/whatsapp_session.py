@@ -23,6 +23,15 @@ class WhatsappSession(Base):
     #   "orc_itens"      → coletando itens (formato: descricao;valor, um por linha)
     #   "orc_pagamento"  → condição de pagamento
     #   "orc_confirmar"  → confirmação final
+    #   "rec_nome"       → coletando pagador do recibo
+    #   "rec_valor"      → coletando valor recebido
+    #   "rec_descricao"  → coletando descricao do recibo
+    #   "rec_confirmar"  → confirmacao final do recibo
+    #   "ev_*"           → remarcar/cancelar compromisso
+    #   "cli_*"          → cadastro rapido de cliente
+    #   "busca_cliente"  → busca cliente por nome/telefone
+    #   "svc_done_*"     → registrar servico concluido
+    #   "lem_*"          → enviar lembrete para cliente
     #   "ag_titulo"      → coletando título do agendamento
     #   "ag_data"        → coletando data/hora do agendamento
     #   "ag_tipo"        → coletando tipo do agendamento
