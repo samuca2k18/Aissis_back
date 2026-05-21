@@ -63,7 +63,7 @@ def register_lid_mapping(phone_jid: str, lid_jid: str) -> None:
 
 def _br_phone_variants(digits: str) -> list[str]:
     """Gera variantes brasileiras de número (com/sem 9° dígito)."""
-    variants = []
+    variants: list[str] = []
     if not digits.startswith("55") or len(digits) not in (12, 13):
         return variants
     if len(digits) == 13 and digits[4] == "9":
